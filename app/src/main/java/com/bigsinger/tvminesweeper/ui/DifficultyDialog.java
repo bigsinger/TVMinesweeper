@@ -27,6 +27,7 @@ public final class DifficultyDialog extends Dialog {
 
     private static final int ACCENT = 0xff38e1c8;
     private final Listener listener;
+    private final KeyHandler keys;
     private final TextView[] rows;
     private final float scale;
     private int selected;
@@ -36,6 +37,7 @@ public final class DifficultyDialog extends Dialog {
             String hint, int initial, KeyHandler keys, Listener listener) {
         super(context);
         this.listener = listener;
+        this.keys = keys;
         scale = Math.max(0.45f, context.getResources().getDisplayMetrics().heightPixels / 1080f);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setCancelable(false);
@@ -80,11 +82,6 @@ public final class DifficultyDialog extends Dialog {
         setContentView(panel);
         selected = Math.max(0, Math.min(rows.length - 1, initial));
         redrawRows();
-        setOnKeyListener(new DialogInterface.OnKeyListener() {
-            @Override public boolean onKey(DialogInterface dialog, int keyCode, KeyEvent event) {
-                return keys.dispatch(event);
-            }
-        });
         setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override public void onDismiss(DialogInterface dialog) {
                 DifficultyDialog.this.listener.onClosed();
@@ -98,6 +95,11 @@ public final class DifficultyDialog extends Dialog {
             attributes.dimAmount = 0.8f;
             window.setAttributes(attributes);
         }
+    }
+
+    /** Route keys before focused children and preserve the opening MENU press's state. */
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        return keys.dispatch(event) || super.dispatchKeyEvent(event);
     }
 
     @Override public void show() {

@@ -5,8 +5,9 @@ import java.util.Random;
 
 /** 不依赖 Android 的扫雷规则：首次安全、空白展开、插旗、数字快开和存档。 */
 public final class GameEngine {
-    private static final String SAVE_VERSION = "TVM1";
-    private static final int SAVE_PART_COUNT = 7;
+    private static final String SAVE_VERSION = "TVM2";
+    private static final String LEGACY_SAVE_VERSION = "TVM1";
+    private static final int SAVE_PART_COUNT = 8;
     private static final int MAX_SAVE_LENGTH = 600;
     private static final int MINE_BIT = 1;
     private static final int OPENED_BIT = 2;
@@ -20,23 +21,30 @@ public final class GameEngine {
 
     /** 经典难度；行列顺序适配横屏电视。 */
     public enum Difficulty {
-        BEGINNER(9, 9, 10),
-        INTERMEDIATE(16, 16, 40),
-        EXPERT(16, 30, 99);
+        BEGINNER(9, 9, 10, 15, 10),
+        INTERMEDIATE(16, 16, 40, 50, 40),
+        EXPERT(16, 30, 90, 110, 99);
 
         public final int rows;
         public final int cols;
+        public final int minMines;
+        public final int maxMines;
+        /** 仅用于读取 TVM1 固定雷数存档；界面和规则应使用范围或本局实际雷数。 */
+        @Deprecated
         public final int mines;
 
-        Difficulty(int rows, int cols, int mines) {
+        Difficulty(int rows, int cols, int minMines, int maxMines, int legacyMines) {
             this.rows = rows;
             this.cols = cols;
-            this.mines = mines;
+            this.minMines = minMines;
+            this.maxMines = maxMines;
+            this.mines = legacyMines;
         }
     }
 
     private final Difficulty difficulty;
     private final Random random;
+    private final int mineCount;
     private final Cell[] cells;
     private State state = State.READY;
     private int flagCount;
@@ -50,11 +58,19 @@ public final class GameEngine {
 
     /** 注入随机源，便于重现雷区和验证规则。 */
     public GameEngine(Difficulty difficulty, Random random) {
+        this(difficulty, random, chooseMineCount(difficulty, random));
+    }
+
+    private GameEngine(Difficulty difficulty, Random random, int mineCount) {
         if (difficulty == null || random == null) {
             throw new IllegalArgumentException("Difficulty and random must not be null");
         }
+        if (mineCount < difficulty.minMines || mineCount > difficulty.maxMines) {
+            throw new IllegalArgumentException("Mine count is outside the difficulty range");
+        }
         this.difficulty = difficulty;
         this.random = random;
+        this.mineCount = mineCount;
         cells = new Cell[difficulty.rows * difficulty.cols];
         for (int index = 0; index < cells.length; index++) {
             cells[index] = new Cell();
@@ -83,7 +99,7 @@ public final class GameEngine {
 
     /** 返回本局地雷总数。 */
     public int getMineCount() {
-        return difficulty.mines;
+        return mineCount;
     }
 
     /** 返回已插旗数量。 */
@@ -131,7 +147,7 @@ public final class GameEngine {
             return false;
         }
         Cell cell = cells[indexOf(row, col)];
-        if (cell.opened || (!cell.flagged && flagCount >= difficulty.mines)) {
+        if (cell.opened || (!cell.flagged && flagCount >= mineCount)) {
             return false;
         }
         cell.flagged = !cell.flagged;
@@ -183,7 +199,8 @@ public final class GameEngine {
         StringBuilder result = new StringBuilder(cells.length + 64);
         result.append(SAVE_VERSION).append('|').append(difficulty.name()).append('|')
                 .append(state.name()).append('|').append(flagCount).append('|')
-                .append(openedCount).append('|').append(firstOpenedIndex).append('|');
+                .append(openedCount).append('|').append(firstOpenedIndex).append('|')
+                .append(mineCount).append('|');
         for (Cell cell : cells) {
             int value = (cell.mine ? MINE_BIT : 0) | (cell.opened ? OPENED_BIT : 0)
                     | (cell.flagged ? FLAGGED_BIT : 0) | (cell.exploded ? EXPLODED_BIT : 0);
@@ -198,20 +215,24 @@ public final class GameEngine {
             return null;
         }
         String[] parts = saved.split("\\|", -1);
-        if (parts.length != SAVE_PART_COUNT || !SAVE_VERSION.equals(parts[0])) {
+        boolean legacy = parts.length == SAVE_PART_COUNT - 1 && LEGACY_SAVE_VERSION.equals(parts[0]);
+        if (!legacy && (parts.length != SAVE_PART_COUNT || !SAVE_VERSION.equals(parts[0]))) {
             return null;
         }
         try {
-            GameEngine engine = new GameEngine(Difficulty.valueOf(parts[1]));
+            Difficulty difficulty = Difficulty.valueOf(parts[1]);
+            int savedMineCount = legacy ? difficulty.mines : Integer.parseInt(parts[6]);
+            GameEngine engine = new GameEngine(difficulty, new Random(), savedMineCount);
             engine.state = State.valueOf(parts[2]);
             engine.flagCount = Integer.parseInt(parts[3]);
             engine.openedCount = Integer.parseInt(parts[4]);
             engine.firstOpenedIndex = Integer.parseInt(parts[5]);
-            if (parts[6].length() != engine.cells.length) {
+            String payload = parts[legacy ? 6 : 7];
+            if (payload.length() != engine.cells.length) {
                 return null;
             }
             for (int index = 0; index < engine.cells.length; index++) {
-                char encoded = parts[6].charAt(index);
+                char encoded = payload.charAt(index);
                 int value = Character.digit(encoded, 16);
                 if (value < 0 || encoded > 'f') {
                     return null;
@@ -231,6 +252,13 @@ public final class GameEngine {
             // 旧版本或损坏偏好设置不应阻止应用启动；由调用方回退为新局。
             return null;
         }
+    }
+
+    private static int chooseMineCount(Difficulty difficulty, Random random) {
+        if (difficulty == null || random == null) {
+            throw new IllegalArgumentException("Difficulty and random must not be null");
+        }
+        return difficulty.minMines + random.nextInt(difficulty.maxMines - difficulty.minMines + 1);
     }
 
     private boolean isInside(int row, int col) {
@@ -256,7 +284,7 @@ public final class GameEngine {
             }
         }
         // 部分 Fisher-Yates 洗牌，固定运行次数，避免拒绝采样的无界重试。
-        for (int placed = 0; placed < difficulty.mines; placed++) {
+        for (int placed = 0; placed < mineCount; placed++) {
             int selected = placed + random.nextInt(candidateCount - placed);
             int mineIndex = candidates[selected];
             candidates[selected] = candidates[placed];
@@ -319,20 +347,20 @@ public final class GameEngine {
     }
 
     private void finishIfWon() {
-        if (state == State.PLAYING && openedCount == cells.length - difficulty.mines) {
+        if (state == State.PLAYING && openedCount == cells.length - mineCount) {
             state = State.WON;
             for (Cell cell : cells) {
                 if (cell.mine) {
                     cell.flagged = true;
                 }
             }
-            flagCount = difficulty.mines;
+            flagCount = mineCount;
         }
     }
 
     private boolean isValidSave() {
-        if (flagCount < 0 || flagCount > difficulty.mines || openedCount < 0
-                || openedCount > cells.length - difficulty.mines) {
+        if (flagCount < 0 || flagCount > mineCount || openedCount < 0
+                || openedCount > cells.length - mineCount) {
             return false;
         }
         int actualFlags = 0;
@@ -357,7 +385,7 @@ public final class GameEngine {
         if (state == State.READY) {
             return actualMines == 0 && openedCount == 0 && explosions == 0 && firstOpenedIndex == -1;
         }
-        if (actualMines != difficulty.mines || firstOpenedIndex < 0 || firstOpenedIndex >= cells.length
+        if (actualMines != mineCount || firstOpenedIndex < 0 || firstOpenedIndex >= cells.length
                 || !cells[firstOpenedIndex].opened || openedCount == 0) {
             return false;
         }
@@ -372,10 +400,10 @@ public final class GameEngine {
             }
         }
         if (state == State.WON) {
-            return explosions == 0 && openedCount == cells.length - difficulty.mines
-                    && flagCount == difficulty.mines;
+            return explosions == 0 && openedCount == cells.length - mineCount
+                    && flagCount == mineCount;
         }
-        if (openedCount == cells.length - difficulty.mines) {
+        if (openedCount == cells.length - mineCount) {
             return false;
         }
         return state == State.LOST ? explosions == 1 : explosions == 0;

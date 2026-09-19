@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.Menu;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -48,6 +49,7 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
     private GameEngine engine;
     private DifficultyDialog modal;
     private int modalGeneration;
+    private long modalConfirmAfter;
     private int row;
     private int col;
     private int status = R.string.ready_status;
@@ -88,8 +90,8 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
             @Override public void postDelayed(Runnable task, long delay) { handler.postDelayed(task, delay); }
             @Override public void remove(Runnable task) { handler.removeCallbacks(task); }
         }, new DoubleClickDetector.Listener() {
-            @Override public void onSingleClick() { openCurrentCell(); }
-            @Override public void onDoubleClick() { toggleCurrentFlag(); }
+            @Override public void onSingleClick() { toggleCurrentFlag(); }
+            @Override public void onDoubleClick() { openCurrentCell(); }
         });
         sounds = new SoundEffects(getApplicationContext());
         board = new BoardView(this, this);
@@ -143,6 +145,14 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         return keys != null && keys.dispatch(event) || super.dispatchKeyEvent(event);
     }
 
+    /** 某些电视系统通过平台选项菜单回调进入菜单，统一显示游戏难度弹层。 */
+    @Override public boolean onCreateOptionsMenu(Menu menu) {
+        if (engine != null && resumed && modal == null) {
+            showMenu();
+        }
+        return false;
+    }
+
     /** 外部窗口抢走焦点时暂停；应用自己的菜单由弹层计时策略负责。 */
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -183,7 +193,7 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         }
     }
 
-    /** 弹层立即确认；暂停时恢复；正常棋盘等待完整双击窗口后再翻开。 */
+    /** 弹层立即确认；暂停时恢复；棋盘单击插旗、双击翻开，结算后单击重开。 */
     @Override public void confirm() {
         if (modal != null) {
             clicks.cancel();
@@ -191,13 +201,16 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         } else if (engine != null && resumed) {
             if (paused) {
                 onResumeTap();
+            } else if (isFinished()) {
+                clicks.cancel();
+                newGame(engine.getDifficulty());
             } else {
                 clicks.onPress();
             }
         }
     }
 
-    /** 音量键或 OK 双击切换当前旗帜，暂停和弹层期间不修改棋盘。 */
+    /** 兼容手柄 X 键插旗；音量键交给系统，不参与棋盘操作。 */
     @Override public void flag() {
         clicks.cancel();
         toggleCurrentFlag();
@@ -408,7 +421,8 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         for (int index = 0; index < 3; index++) {
             GameEngine.Difficulty difficulty = GameEngine.Difficulty.values()[index];
             options[index] = getString(BoardView.difficultyLabel(index)) + "    "
-                    + getString(R.string.difficulty_meta, difficulty.cols, difficulty.rows, difficulty.mines);
+                    + getString(R.string.difficulty_meta_range, difficulty.cols, difficulty.rows,
+                            difficulty.minMines, difficulty.maxMines);
         }
         options[3] = getString(soundEnabled ? R.string.sound_on : R.string.sound_off);
         options[4] = getString(R.string.help_title);
@@ -484,6 +498,8 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
                         }
                     }
                 });
+        // 忽略触发结算的双击之后残留的连按，避免默认“再来一局”被第三次 OK 触发。
+        modalConfirmAfter = SystemClock.uptimeMillis() + DoubleClickDetector.DOUBLE_CLICK_MS;
     }
 
     private void showModal(String title, String subtitle, String[] options, String hint,
@@ -498,7 +514,8 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         modal = new DifficultyDialog(this, title, subtitle, options, hint, initial, keys,
                 new DifficultyDialog.Listener() {
                     @Override public void onSelected(int position) {
-                        if (!destroyed && modalGeneration == generation) {
+                        if (!destroyed && modalGeneration == generation
+                                && SystemClock.uptimeMillis() >= modalConfirmAfter) {
                             selection.select(position);
                         }
                     }
@@ -516,6 +533,7 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
     }
 
     private void closeModal(boolean resumeClock) {
+        modalConfirmAfter = 0L;
         if (modal != null) {
             DifficultyDialog previous = modal;
             modal = null;

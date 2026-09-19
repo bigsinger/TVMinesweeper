@@ -19,14 +19,14 @@ public class GameEngineTest {
         assertEquals(GameEngine.State.READY, game.getState());
         assertEquals(9, game.getRows());
         assertEquals(9, game.getCols());
-        assertEquals(10, game.getMineCount());
+        assertTrue(game.getMineCount() >= 10 && game.getMineCount() <= 15);
         assertEquals(0, countMines(game));
         assertTrue(game.toggleFlag(0, 0));
         assertEquals(0, game.openCell(0, 0));
         assertEquals(GameEngine.State.READY, game.getState());
         assertTrue(game.toggleFlag(0, 0));
         assertTrue(game.openCell(0, 0) > 0);
-        assertEquals(10, countMines(game));
+        assertEquals(game.getMineCount(), countMines(game));
     }
 
     @Test
@@ -37,7 +37,7 @@ public class GameEngineTest {
                 int row = seed % 2 == 0 ? 0 : difficulty.rows / 2;
                 int col = seed % 3 == 0 ? difficulty.cols - 1 : difficulty.cols / 2;
                 assertTrue(game.openCell(row, col) > 0);
-                assertEquals(difficulty.mines, countMines(game));
+                assertEquals(game.getMineCount(), countMines(game));
                 assertEquals(0, game.getCell(row, col).getAdjacentMines());
                 for (int nearbyRow = row - 1; nearbyRow <= row + 1; nearbyRow++) {
                     for (int nearbyCol = col - 1; nearbyCol <= col + 1; nearbyCol++) {
@@ -60,6 +60,46 @@ public class GameEngineTest {
         first.openCell(8, 15);
         second.openCell(8, 15);
         assertEquals(first.serialize(), second.serialize());
+    }
+
+    @Test
+    public void randomMineRangeIncludesBothEndpointsForEveryDifficulty() {
+        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
+            for (int requested : new int[]{difficulty.minMines, difficulty.maxMines}) {
+                GameEngine game = new GameEngine(difficulty,
+                        randomWithFirstResult(requested - difficulty.minMines));
+                assertEquals(requested, game.getMineCount());
+                assertEquals(0, countMines(game));
+                game.openCell(difficulty.rows / 2, difficulty.cols / 2);
+                assertEquals(requested, countMines(game));
+                assertEquals(0, game.getCell(difficulty.rows / 2, difficulty.cols / 2).getAdjacentMines());
+                openAllSafeCells(game);
+                assertEquals(GameEngine.State.WON, game.getState());
+                assertEquals(difficulty.rows * difficulty.cols - requested, game.getOpenedCount());
+                assertEquals(requested, game.getFlagCount());
+                assertRoundTrip(game);
+            }
+        }
+    }
+
+    @Test
+    public void mineCountVariesAcrossSeedsAndNeverLeavesDifficultyRange() {
+        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
+            boolean[] observed = new boolean[difficulty.maxMines - difficulty.minMines + 1];
+            int distinct = 0;
+            for (int seed = 0; seed < 256; seed++) {
+                GameEngine game = new GameEngine(difficulty, new Random(seed));
+                int mineCount = game.getMineCount();
+                assertTrue(mineCount >= difficulty.minMines && mineCount <= difficulty.maxMines);
+                if (!observed[mineCount - difficulty.minMines]) {
+                    observed[mineCount - difficulty.minMines] = true;
+                    distinct++;
+                }
+                game.openCell(0, 0);
+                assertEquals(mineCount, countMines(game));
+            }
+            assertTrue("New games must not retain a fixed mine count", distinct > 1);
+        }
     }
 
     @Test
@@ -104,7 +144,7 @@ public class GameEngineTest {
             }
         });
         assertTrue(game.openCell(15, 29) > 300);
-        assertEquals(99, countMines(game));
+        assertEquals(GameEngine.Difficulty.EXPERT.minMines, countMines(game));
     }
 
     @Test
@@ -127,12 +167,12 @@ public class GameEngineTest {
         for (int index = 0; index < game.getMineCount(); index++) {
             assertTrue(game.toggleFlag(index / 9, index % 9));
         }
-        assertEquals(10, game.getFlagCount());
+        assertEquals(game.getMineCount(), game.getFlagCount());
         assertFalse(game.toggleFlag(2, 2));
         assertTrue(game.toggleFlag(0, 0));
-        assertEquals(9, game.getFlagCount());
+        assertEquals(game.getMineCount() - 1, game.getFlagCount());
         assertTrue(game.toggleFlag(2, 2));
-        assertEquals(10, game.getFlagCount());
+        assertEquals(game.getMineCount(), game.getFlagCount());
     }
 
     @Test
@@ -154,8 +194,8 @@ public class GameEngineTest {
         GameEngine game = playingGame();
         openAllSafeCells(game);
         assertEquals(GameEngine.State.WON, game.getState());
-        assertEquals(71, game.getOpenedCount());
-        assertEquals(10, game.getFlagCount());
+        assertEquals(81 - game.getMineCount(), game.getOpenedCount());
+        assertEquals(game.getMineCount(), game.getFlagCount());
         for (int row = 0; row < game.getRows(); row++) {
             for (int col = 0; col < game.getCols(); col++) {
                 Cell cell = game.getCell(row, col);
@@ -278,30 +318,98 @@ public class GameEngineTest {
     }
 
     @Test
+    public void readySavePreservesChosenMineCountAndFlagsBeforeFirstOpen() {
+        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
+            GameEngine game = new GameEngine(difficulty,
+                    randomWithFirstResult(difficulty.maxMines - difficulty.minMines));
+            game.toggleFlag(0, 0);
+            for (int restore = 0; restore < 20; restore++) {
+                game = GameEngine.restore(game.serialize());
+                assertNotNull(game);
+                assertEquals(GameEngine.State.READY, game.getState());
+                assertEquals(difficulty.maxMines, game.getMineCount());
+                assertEquals(1, game.getFlagCount());
+                assertTrue(game.getCell(0, 0).isFlagged());
+                assertEquals(0, countMines(game));
+            }
+            game.openCell(difficulty.rows / 2, difficulty.cols / 2);
+            assertEquals(difficulty.maxMines, countMines(game));
+            assertRoundTrip(game);
+        }
+    }
+
+    @Test
+    public void legacyReadyAndPlayingSavesMigrateWithoutChangingMineCountOrFlags() {
+        int[] legacyCounts = {10, 40, 99};
+        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
+            int legacyCount = legacyCounts[difficulty.ordinal()];
+            GameEngine ready = new GameEngine(difficulty,
+                    randomWithFirstResult(legacyCount - difficulty.minMines));
+            ready.toggleFlag(0, 0);
+            GameEngine restoredReady = GameEngine.restore(toLegacySave(ready));
+            assertNotNull(restoredReady);
+            assertEquals(ready.serialize(), restoredReady.serialize());
+            assertEquals(legacyCount, restoredReady.getMineCount());
+            restoredReady.openCell(difficulty.rows / 2, difficulty.cols / 2);
+            assertEquals(legacyCount, countMines(restoredReady));
+
+            ready.openCell(difficulty.rows / 2, difficulty.cols / 2);
+            assertEquals(GameEngine.State.PLAYING, ready.getState());
+            GameEngine restoredPlaying = GameEngine.restore(toLegacySave(ready));
+            assertNotNull(restoredPlaying);
+            assertEquals(ready.serialize(), restoredPlaying.serialize());
+            assertEquals(legacyCount, countMines(restoredPlaying));
+            assertEquals(1, restoredPlaying.getFlagCount());
+            assertTrue(restoredPlaying.getCell(0, 0).isFlagged());
+            assertRoundTrip(restoredPlaying);
+        }
+    }
+
+    @Test
+    public void savedMineCountMustMatchDifficultyAndGeneratedLayout() {
+        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
+            GameEngine ready = new GameEngine(difficulty, randomWithFirstResult(0));
+            assertNull(GameEngine.restore(replacePart(ready.serialize(), 6,
+                    String.valueOf(difficulty.minMines - 1))));
+            assertNull(GameEngine.restore(replacePart(ready.serialize(), 6,
+                    String.valueOf(difficulty.maxMines + 1))));
+            assertNull(GameEngine.restore(replacePart(ready.serialize(), 6, "9999999999999999")));
+            ready.openCell(difficulty.rows / 2, difficulty.cols / 2);
+            assertNull(GameEngine.restore(replacePart(ready.serialize(), 6,
+                    String.valueOf(difficulty.minMines + 1))));
+        }
+        GameEngine randomCount = new GameEngine(GameEngine.Difficulty.BEGINNER,
+                randomWithFirstResult(5));
+        randomCount.openCell(4, 4);
+        assertNull(GameEngine.restore(toLegacySave(randomCount)));
+    }
+
+    @Test
     public void malformedAndInconsistentSavesAreRejected() {
         String valid = playingGame().serialize();
         assertNull(GameEngine.restore(null));
         assertNull(GameEngine.restore(""));
         assertNull(GameEngine.restore(valid + "|unexpected"));
         assertNull(GameEngine.restore(valid.substring(0, valid.length() - 1)));
-        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM2")));
+        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM3")));
+        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM1")));
         assertNull(GameEngine.restore(replacePart(valid, 1, "CUSTOM")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "INVALID")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "READY")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "WON")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "LOST")));
         assertNull(GameEngine.restore(replacePart(valid, 3, "-1")));
-        assertNull(GameEngine.restore(replacePart(valid, 3, "11")));
+        assertNull(GameEngine.restore(replacePart(valid, 3, "16")));
         assertNull(GameEngine.restore(replacePart(valid, 3, "1")));
         assertNull(GameEngine.restore(replacePart(valid, 4, "9999999999999999")));
         assertNull(GameEngine.restore(replacePart(valid, 4, "-1")));
         assertNull(GameEngine.restore(replacePart(valid, 5, "480")));
         assertNull(GameEngine.restore(replacePart(valid, 5, "-1")));
-        String payload = valid.split("\\|", -1)[6];
-        assertNull(GameEngine.restore(replacePart(valid, 6, "z" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 6, "6" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 6, "8" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 6, payload.replace('1', '0'))));
+        String payload = valid.split("\\|", -1)[7];
+        assertNull(GameEngine.restore(replacePart(valid, 7, "z" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 7, "6" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 7, "8" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 7, payload.replace('1', '0'))));
         StringBuilder oversized = new StringBuilder();
         for (int index = 0; index < 601; index++) {
             oversized.append('x');
@@ -415,12 +523,35 @@ public class GameEngineTest {
         assertNotNull(restored);
         assertEquals(game.serialize(), restored.serialize());
         assertEquals(game.getDifficulty(), restored.getDifficulty());
+        assertEquals(game.getMineCount(), restored.getMineCount());
         for (int row = 0; row < game.getRows(); row++) {
             for (int col = 0; col < game.getCols(); col++) {
                 assertEquals(game.getCell(row, col).getAdjacentMines(),
                         restored.getCell(row, col).getAdjacentMines());
             }
         }
+    }
+
+    private static Random randomWithFirstResult(final int firstResult) {
+        return new Random(42) {
+            private boolean first = true;
+
+            @Override
+            public int nextInt(int bound) {
+                if (first) {
+                    first = false;
+                    assertTrue(firstResult >= 0 && firstResult < bound);
+                    return firstResult;
+                }
+                return super.nextInt(bound);
+            }
+        };
+    }
+
+    private static String toLegacySave(GameEngine game) {
+        String[] parts = game.serialize().split("\\|", -1);
+        return "TVM1|" + parts[1] + "|" + parts[2] + "|" + parts[3] + "|"
+                + parts[4] + "|" + parts[5] + "|" + parts[7];
     }
 
     private static String replacePart(String saved, int index, String replacement) {

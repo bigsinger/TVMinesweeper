@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import com.bigsinger.tvminesweeper.game.GameEngine.Difficulty;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -23,7 +25,7 @@ public final class RankRepository {
     private static final String KEY_ENTRIES = "entries_v1";
     private static final int MAX_ENTRIES = 8;
     private static final int MAX_STORED_LENGTH = 32768;
-    private static final int[] SAFE_CELLS = {71, 216, 381};
+    private static final Difficulty[] DIFFICULTIES = Difficulty.values();
     private static final int[] DIFFICULTY_WEIGHTS = {1, 3, 8};
     private static final int SCORE_BASE = 10000;
     private static final Comparator<Entry> RANK_ORDER = new Comparator<Entry>() {
@@ -78,7 +80,7 @@ public final class RankRepository {
 
     /**
      * 在胜利状态转换时调用一次，保存前八名并返回本次记录 ID。
-     * safeCells 必须是本局已经翻开的安全格数量；未完全通关返回 null。
+     * 调用方必须确认本局胜利，safeCells 为实际翻开的安全格数量；超出难度范围返回 null。
      * 未进入前八名时仍返回 ID，界面仅高亮实际存在于返回列表中的记录。
      */
     public synchronized String addWin(int difficulty, long seconds, int safeCells) {
@@ -117,8 +119,7 @@ public final class RankRepository {
         if (!isValidWin(difficulty, seconds, safeCells)) {
             return 0;
         }
-        return (int) Math.round(DIFFICULTY_WEIGHTS[difficulty] * (double) SCORE_BASE
-                / Math.max(1L, seconds));
+        return scoreForTime(difficulty, seconds);
     }
 
     private List<Entry> readEntries() {
@@ -140,8 +141,8 @@ public final class RankRepository {
                     long date = item.getLong("date");
                     int score = item.getInt("score");
                     if (id.length() == 0 || id.length() > 100 || difficulty < 0
-                            || difficulty >= SAFE_CELLS.length || seconds < 0L || date <= 0L
-                            || score != calculateScore(difficulty, seconds, SAFE_CELLS[difficulty])) {
+                            || difficulty >= DIFFICULTIES.length || seconds < 0L || date <= 0L
+                            || score != scoreForTime(difficulty, seconds)) {
                         Log.w(TAG, "Ignoring invalid leaderboard entry");
                         continue;
                     }
@@ -162,8 +163,17 @@ public final class RankRepository {
     }
 
     private static boolean isValidWin(int difficulty, long seconds, int safeCells) {
-        return difficulty >= 0 && difficulty < SAFE_CELLS.length && seconds >= 0L
-                && safeCells == SAFE_CELLS[difficulty];
+        if (difficulty < 0 || difficulty >= DIFFICULTIES.length || seconds < 0L) {
+            return false;
+        }
+        Difficulty level = DIFFICULTIES[difficulty];
+        int totalCells = level.rows * level.cols;
+        return safeCells >= totalCells - level.maxMines && safeCells <= totalCells - level.minMines;
+    }
+
+    private static int scoreForTime(int difficulty, long seconds) {
+        return (int) Math.round(DIFFICULTY_WEIGHTS[difficulty] * (double) SCORE_BASE
+                / Math.max(1L, seconds));
     }
 
     private static void sortAndTrim(List<Entry> entries) {

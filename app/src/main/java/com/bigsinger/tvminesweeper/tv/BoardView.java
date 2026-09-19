@@ -28,6 +28,12 @@ import java.util.Locale;
 public final class BoardView extends View {
     private static final float DESIGN_WIDTH = 1920f;
     private static final float DESIGN_HEIGHT = 1080f;
+    private static final float OUTER_MARGIN_PX = 2f;
+    private static final float RANK_WIDTH = 316f;
+    private static final float INFO_WIDTH = 232f;
+    private static final float PANEL_GAP = 12f;
+    private static final float BOARD_PADDING = 10f;
+    private static final float FOOTER_HEIGHT = 38f;
     private static final int BG = Color.rgb(6, 10, 15);
     private static final int PANEL = Color.rgb(16, 23, 32);
     private static final int LINE = Color.rgb(34, 49, 63);
@@ -63,6 +69,14 @@ public final class BoardView extends View {
     private float boardLeft;
     private float boardTop;
     private float cellSize;
+    private float edge = OUTER_MARGIN_PX;
+    private float rankRight;
+    private float infoLeft;
+    private float infoRight;
+    private float gameLeft;
+    private float gameRight;
+    private float gameBottom;
+    private final RectF menuBounds = new RectF();
     private float touchX;
     private float touchY;
     private LinearGradient backdrop;
@@ -109,7 +123,7 @@ public final class BoardView extends View {
                 getContext().getString(stateText), row + 1, col + 1, engine.getOpenedCount(),
                 engine.getFlagCount(), elapsed / 1000L,
                 getContext().getString(paused ? R.string.a11y_yes : R.string.a11y_no),
-                getContext().getString(cellText));
+                getContext().getString(cellText), engine.getMineCount());
         if (!accessibilityState.equals(lastAccessibilityState)) {
             lastAccessibilityState = accessibilityState;
             setContentDescription(accessibilityState);
@@ -140,6 +154,15 @@ public final class BoardView extends View {
         scale = Math.min(w / DESIGN_WIDTH, h / DESIGN_HEIGHT);
         offsetX = (w - DESIGN_WIDTH * scale) / 2f;
         offsetY = (h - DESIGN_HEIGHT * scale) / 2f;
+        // Keep only two physical pixels outside the panels at both 720p and 1080p.
+        edge = OUTER_MARGIN_PX / Math.max(0.1f, scale);
+        rankRight = edge + RANK_WIDTH;
+        infoLeft = rankRight + PANEL_GAP;
+        infoRight = infoLeft + INFO_WIDTH;
+        gameLeft = infoRight + PANEL_GAP;
+        gameRight = DESIGN_WIDTH - edge;
+        gameBottom = DESIGN_HEIGHT - edge - FOOTER_HEIGHT;
+        menuBounds.set(infoLeft + 18, 505, infoRight - 18, 567);
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -166,86 +189,95 @@ public final class BoardView extends View {
     }
 
     private void drawRank(Canvas canvas) {
-        box(canvas, 96, 54, 300, 1026, 18, PANEL, LINE);
-        fitText(canvas, getContext().getString(R.string.rank_title), 114, 103, 168, 26, INK, true);
-        fitText(canvas, getContext().getString(R.string.rank_sub), 114, 136, 168, 18, DIM, false);
-        line(canvas, 114, 155, 282, 155, LINE, 1);
-        line(canvas, 114, 155, 174, 155, ACCENT, 3);
+        float left = edge + 22;
+        float center = edge + RANK_WIDTH / 2f;
+        float textWidth = RANK_WIDTH - 44;
+        box(canvas, edge, edge, rankRight, DESIGN_HEIGHT - edge, 16, PANEL, LINE);
+        fitText(canvas, getContext().getString(R.string.rank_title), left, 56, textWidth, 33, INK, true);
+        fitText(canvas, getContext().getString(R.string.rank_sub), left, 92, textWidth, 21, DIM, false);
+        line(canvas, left, 116, rankRight - 22, 116, LINE, 1);
+        line(canvas, left, 116, left + 72, 116, ACCENT, 3);
         if (ranks.isEmpty()) {
-            mine(canvas, 198, 402, 29, ACCENT);
-            fitText(canvas, getContext().getString(R.string.rank_empty), 114, 489, 168, 25, INK, true);
-            text(canvas, getContext().getString(R.string.rank_empty_sub), 198, 533, 30, ACCENT, true, true);
-            fitText(canvas, getContext().getString(R.string.rank_empty_hint), 114, 591, 168, 20, DIM, false);
+            mine(canvas, center, 414, 38, ACCENT);
+            text(canvas, getContext().getString(R.string.rank_empty), center, 504, 30, INK, true, true);
+            text(canvas, getContext().getString(R.string.rank_empty_sub), center, 553, 38, ACCENT, true, true);
+            fitText(canvas, getContext().getString(R.string.rank_empty_hint), left, 612, textWidth, 25, DIM, false);
             for (int i = 0; i < 3; i++) {
-                box(canvas, 137 + i * 45, 645, 169 + i * 45, 677, 6, 0xff1e2b38, LINE);
+                box(canvas, center - 75 + i * 56, 673, center - 33 + i * 56, 715, 7, 0xff1e2b38, LINE);
             }
         } else {
             for (int i = 0; i < ranks.size() && i < 8; i++) {
                 RankRepository.Entry entry = ranks.get(i);
-                float top = 172 + i * 91;
+                float top = 139 + i * 103;
                 boolean fresh = entry.id.equals(newRecord) && SystemClock.uptimeMillis() < flashUntil;
                 int medal = i == 0 ? GOLD : i == 1 ? 0xffc9d4e0 : i == 2 ? 0xffd6a071 : DIM;
-                box(canvas, 108, top, 288, top + 84, 10, i == 0 ? 0xff25231c : 0xff15202a,
-                        fresh ? ACCENT : i < 3 ? 0xff454235 : LINE);
-                text(canvas, String.valueOf(i + 1), 128, top + 31, 22, medal, true, true);
-                text(canvas, String.valueOf(entry.score), 149, top + 31, 28, ACCENT, true, false);
-                String info = getContext().getString(difficultyLabel(entry.difficulty)) + " · "
-                        + formatTime(entry.seconds * 1000L);
-                fitText(canvas, info, 123, top + 56, 151, 21, DIM, false);
-                text(canvas, dateFormat.format(new Date(entry.date)), 123, top + 77, 18, DIM, false, false);
+                box(canvas, edge + 10, top, rankRight - 10, top + 94, 11,
+                        i == 0 ? 0xff25231c : 0xff15202a, fresh ? ACCENT : i < 3 ? 0xff454235 : LINE);
+                text(canvas, String.valueOf(i + 1), edge + 33, top + 39, 28, medal, true, true);
+                text(canvas, String.valueOf(entry.score), edge + 63, top + 41, 36, ACCENT, true, false);
+                String info = getContext().getString(R.string.rank_meta,
+                        getContext().getString(difficultyLabel(entry.difficulty)),
+                        formatTime(entry.seconds * 1000L), dateFormat.format(new Date(entry.date)));
+                fitText(canvas, info, left, top + 76, textWidth, 23, DIM, false);
                 if (fresh) { postInvalidateDelayed(100L); }
             }
         }
-        line(canvas, 114, 934, 282, 934, LINE, 1);
+        line(canvas, left, 986, rankRight - 22, 986, LINE, 1);
         String[] footer = getContext().getString(R.string.rank_footer).split("\n");
         for (int i = 0; i < footer.length; i++) {
-            fitText(canvas, footer[i], 114, 969 + i * 29, 168, 20, DIM, false);
+            fitText(canvas, footer[i], left, 1024 + i * 29, textWidth, 23, DIM, false);
         }
     }
 
     private void drawHeader(Canvas canvas) {
-        box(canvas, 316, 54, 492, 1026, 18, PANEL, LINE);
-        fitText(canvas, getContext().getString(R.string.brand), 334, 104, 140, 27, INK, true);
-        line(canvas, 334, 128, 474, 128, LINE, 1);
-        text(canvas, getContext().getString(R.string.mines_left), 404, 173, 22, DIM, false, true);
+        float center = (infoLeft + infoRight) / 2f;
+        float left = infoLeft + 22;
+        float width = INFO_WIDTH - 44;
+        box(canvas, infoLeft, edge, infoRight, DESIGN_HEIGHT - edge, 16, PANEL, LINE);
+        fitText(canvas, getContext().getString(R.string.brand), left, 56, width, 33, INK, true);
+        line(canvas, left, 91, infoRight - 22, 91, LINE, 1);
+        text(canvas, getContext().getString(R.string.mines_left), center, 143, 25, DIM, false, true);
         text(canvas, String.format(Locale.US, "%03d", engine.getMineCount() - engine.getFlagCount()),
-                404, 230, 53, GOLD, true, true);
-        text(canvas, getContext().getString(R.string.time_label), 404, 289, 22, DIM, false, true);
-        fitText(canvas, formatTime(elapsed), 334, 340, 140, 42, ACCENT, true);
-        line(canvas, 334, 374, 474, 374, LINE, 1);
+                center, 209, 64, GOLD, true, true);
+        text(canvas, getContext().getString(R.string.time_label), center, 269, 25, DIM, false, true);
+        fitText(canvas, formatTime(elapsed), left, 328, width, 56, ACCENT, true);
+        line(canvas, left, 364, infoRight - 22, 364, LINE, 1);
         text(canvas, getContext().getString(difficultyLabel(engine.getDifficulty().ordinal())),
-                404, 420, 29, INK, true, true);
-        text(canvas, engine.getCols() + " × " + engine.getRows(), 404, 458, 24, DIM, false, true);
+                center, 407, 32, INK, true, true);
+        text(canvas, engine.getCols() + " × " + engine.getRows(), center, 447, 29, DIM, false, true);
         text(canvas, getContext().getString(R.string.mine_total, engine.getMineCount()),
-                404, 491, 22, DIM, false, true);
-        box(canvas, 339, 512, 469, 559, 9, 0xff173b3b, 0xff358c81);
-        text(canvas, getContext().getString(R.string.menu_key), 404, 544, 23, ACCENT, true, true);
+                center, 484, 25, DIM, false, true);
+        box(canvas, menuBounds.left, menuBounds.top, menuBounds.right, menuBounds.bottom,
+                10, 0xff173b3b, 0xff358c81);
+        text(canvas, getContext().getString(R.string.menu_key), center, 546, 29, ACCENT, true, true);
         int safeCells = engine.getRows() * engine.getCols() - engine.getMineCount();
-        text(canvas, getContext().getString(R.string.safe_cells), 404, 615, 22, DIM, false, true);
-        text(canvas, engine.getOpenedCount() + " / " + safeCells, 404, 656, 28, INK, true, true);
+        text(canvas, getContext().getString(R.string.safe_cells), center, 626, 25, DIM, false, true);
+        text(canvas, engine.getOpenedCount() + " / " + safeCells, center, 674, 35, INK, true, true);
         float progress = engine.getOpenedCount() / (float) safeCells;
-        box(canvas, 337, 676, 471, 681, 2, LINE, Color.TRANSPARENT);
+        box(canvas, left, 698, infoRight - 22, 704, 3, LINE, Color.TRANSPARENT);
         if (progress > 0) {
-            box(canvas, 337, 676, 337 + 134 * progress, 681, 2, ACCENT, Color.TRANSPARENT);
+            box(canvas, left, 698, left + width * progress, 704, 3, ACCENT, Color.TRANSPARENT);
         }
-        line(canvas, 334, 718, 474, 718, LINE, 1);
-        int[] tips = {R.string.side_move, R.string.side_open, R.string.side_flag, R.string.side_volume};
+        line(canvas, left, 742, infoRight - 22, 742, LINE, 1);
+        int[] tips = {R.string.side_move, R.string.side_flag, R.string.side_open, R.string.side_menu};
         for (int i = 0; i < tips.length; i++) {
-            fitText(canvas, getContext().getString(tips[i]), 332, 765 + i * 44, 144, 23, DIM, false);
+            fitText(canvas, getContext().getString(tips[i]), left, 792 + i * 46, width, 26, DIM, false);
         }
         fitText(canvas, getContext().getString(soundEnabled ? R.string.sound_on : R.string.sound_off),
-                334, 967, 140, 20, DIM, false);
-        fitText(canvas, getContext().getString(R.string.side_back), 334, 1001, 140, 20, DIM, false);
+                left, 1018, width, 24, DIM, false);
+        fitText(canvas, getContext().getString(R.string.side_back), left, 1053, width, 23, DIM, false);
     }
     private void drawBoard(Canvas canvas) {
         int rows = engine.getRows();
         int cols = engine.getCols();
-        cellSize = Math.min(100f, Math.min(1280f / cols, 896f / rows));
+        cellSize = Math.min((gameRight - gameLeft - 2 * BOARD_PADDING) / cols,
+                (gameBottom - edge - 2 * BOARD_PADDING) / rows);
         float width = cols * cellSize;
         float height = rows * cellSize;
-        boardLeft = 1168 - width / 2f;
-        boardTop = 518 - height / 2f;
-        box(canvas, boardLeft - 16, boardTop - 16, boardLeft + width + 16, boardTop + height + 16,
+        boardLeft = (gameLeft + gameRight - width) / 2f;
+        boardTop = (edge + gameBottom - height) / 2f;
+        box(canvas, boardLeft - BOARD_PADDING, boardTop - BOARD_PADDING,
+                boardLeft + width + BOARD_PADDING, boardTop + height + BOARD_PADDING,
                 18, 0xff091019, LINE);
         boolean lost = engine.getState() == GameEngine.State.LOST;
         for (int r = 0; r < rows; r++) {
@@ -274,7 +306,7 @@ public final class BoardView extends View {
                     mine(canvas, centerX, centerY, cellSize * 0.22f, cell.isExploded() ? INK : RED);
                 } else if (cell.isOpened() && cell.getAdjacentMines() > 0) {
                     centeredText(canvas, String.valueOf(cell.getAdjacentMines()), centerX, centerY,
-                            Math.min(48, cellSize * 0.77f), NUMBERS[cell.getAdjacentMines()]);
+                            Math.min(56, cellSize * 0.77f), NUMBERS[cell.getAdjacentMines()]);
                 }
             }
         }
@@ -284,23 +316,25 @@ public final class BoardView extends View {
                 0x5538e1c8, 8);
         box(canvas, fx - 1, fy - 1, fx + cellSize - 1, fy + cellSize - 1, 6, Color.TRANSPARENT, ACCENT, 3);
         text(canvas, getContext().getString(R.string.cursor_position, row + 1, col + 1),
-                1824, 1017, 21, DIM, false, false, Paint.Align.RIGHT);
+                gameRight - 6, DESIGN_HEIGHT - edge - 9, 22, DIM, false, false, Paint.Align.RIGHT);
     }
     private void drawFooter(Canvas canvas) {
         int color = engine.getState() == GameEngine.State.LOST ? RED : ACCENT;
-        circle(canvas, 521, 1009, 4, color);
+        float baseline = DESIGN_HEIGHT - edge - 9;
+        circle(canvas, gameLeft + 7, baseline - 8, 4, color);
         boolean finished = engine.getState() == GameEngine.State.WON || engine.getState() == GameEngine.State.LOST;
         fitText(canvas, getContext().getString(finished ? R.string.review_hint : status),
-                537, 1017, 1000, 24, color, true);
-    }
-    private void drawPause(Canvas canvas) {
-        box(canvas, 512, 54, 1824, 982, 18, 0xea09111b, LINE);
-        text(canvas, getContext().getString(R.string.paused_title), 1168, 456, 47, INK, true, true);
-        text(canvas, getContext().getString(R.string.paused_sub), 1168, 515, 25, DIM, false, true);
-        box(canvas, 978, 560, 1358, 637, 13, 0xff163e3b, ACCENT, 2);
-        text(canvas, getContext().getString(R.string.paused_action), 1168, 609, 29, ACCENT, true, true);
+                gameLeft + 23, baseline, gameRight - gameLeft - 270, 25, color, true);
     }
 
+    private void drawPause(Canvas canvas) {
+        float center = (gameLeft + gameRight) / 2f;
+        box(canvas, gameLeft, edge, gameRight, gameBottom, 18, 0xea09111b, LINE);
+        text(canvas, getContext().getString(R.string.paused_title), center, 456, 49, INK, true, true);
+        text(canvas, getContext().getString(R.string.paused_sub), center, 519, 28, DIM, false, true);
+        box(canvas, center - 190, 564, center + 190, 645, 13, 0xff163e3b, ACCENT, 2);
+        text(canvas, getContext().getString(R.string.paused_action), center, 617, 31, ACCENT, true, true);
+    }
     private void flag(Canvas canvas, float x, float y, float size, int color) {
         line(canvas, x - size * 0.3f, y - size, x - size * 0.3f, y + size, INK, 2.5f);
         line(canvas, x - size * 0.75f, y + size, x + size * 0.45f, y + size, INK, 2.5f);
@@ -407,7 +441,7 @@ public final class BoardView extends View {
         if (engine == null || scale <= 0) { return true; }
         float x = (touchX - offsetX) / scale;
         float y = (touchY - offsetY) / scale;
-        if (x >= 316 && x <= 492 && y >= 374 && y <= 559) {
+        if (menuBounds.contains(x, y) || (x >= infoLeft && x <= infoRight && y >= 374 && y <= 567)) {
             callback.onMenuTap();
         } else if (paused) {
             callback.onResumeTap();

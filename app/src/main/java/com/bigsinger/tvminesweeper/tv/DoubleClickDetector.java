@@ -2,7 +2,7 @@ package com.bigsinger.tvminesweeper.tv;
 
 /** Delays a single press until the full double-press window has elapsed. */
 public final class DoubleClickDetector {
-    public static final long DOUBLE_CLICK_MS = 280L;
+    public static final long DOUBLE_CLICK_MS = 360L;
 
     /** Injectable monotonic clock and scheduler keep input timing independently testable. */
     public interface Scheduler {
@@ -57,7 +57,7 @@ public final class DoubleClickDetector {
         }
         firstAt = now;
         pending = true;
-        // One extra millisecond keeps a press at the inclusive 280ms boundary eligible.
+        // One extra millisecond keeps a press at the inclusive 360ms boundary eligible.
         scheduler.postDelayed(singleTask, DOUBLE_CLICK_MS + 1L);
     }
 
