@@ -146,9 +146,24 @@ function Assert-Menu($Snapshot, [string]$Label = 'MENU 打开难度菜单') {
     Assert-That $found $Label
 }
 
+function Assert-PauseMenu($Snapshot) {
+    $titleFound = $false
+    $expectedOptions = @('继续游戏', '选择难度', '保存并退出')
+    $actualOptions = @()
+    foreach ($node in $Snapshot.Document.SelectNodes('//node')) {
+        $label = $node.GetAttribute('text')
+        if ($label -eq '游戏已暂停') { $titleFound = $true }
+        if ($expectedOptions -contains $label) { $actualOptions += $label }
+    }
+    Assert-That $titleFound '返回键打开“游戏已暂停”菜单'
+    Assert-That (($actualOptions -join '|') -eq ($expectedOptions -join '|')) '暂停菜单依次提供继续、选择难度、保存并退出'
+}
 function Start-NewGame([int]$Difficulty) {
-    Send-Keys @(82)
-    Assert-Menu (Read-Snapshot)
+    # Use the BACK route so normal setup does not depend on a remote MENU event.
+    Send-Keys @(4)
+    Assert-PauseMenu (Read-Snapshot)
+    Send-Keys @(20, 23)
+    Assert-Menu (Read-Snapshot) '返回菜单的“选择难度”打开难度菜单'
     # Eight UP events place selection at the first row regardless of the previous option.
     Send-Keys @(19, 19, 19, 19, 19, 19, 19, 19)
     if ($Difficulty -gt 0) { Send-Keys @(1..$Difficulty | ForEach-Object { 20 }) }
@@ -267,6 +282,33 @@ try {
         Assert-That ($safeNeighbor.Cell -eq 'open' -and $safeNeighbor.State -eq 'PLAYING') '首次翻开周围 3×3 格全部安全' "row=$($safeNeighbor.Row), col=$($safeNeighbor.Col)"
     }
     Send-Keys @(21, 20)
+    $beforePauseDefault = Read-Board
+    Send-Keys @(4)
+    Assert-PauseMenu (Read-Snapshot)
+    # Confirm without any direction event: this verifies the default is Continue, not Exit.
+    Send-Keys @(23)
+    $afterPauseDefault = Read-Board
+    Assert-Cursor $afterPauseDefault $beforePauseDefault.Row $beforePauseDefault.Col '暂停菜单默认继续后保留光标'
+    Assert-That ($afterPauseDefault.State -eq $beforePauseDefault.State -and $afterPauseDefault.Opened -eq $beforePauseDefault.Opened -and $afterPauseDefault.Flags -eq $beforePauseDefault.Flags -and $afterPauseDefault.Mines -eq $beforePauseDefault.Mines -and -not $afterPauseDefault.Paused) '暂停菜单默认 OK 继续原局，不退出或重开'
+    Assert-That ($afterPauseDefault.Elapsed -ge $beforePauseDefault.Elapsed) '默认继续保留累计用时'
+
+    $fallbackWatch = [Diagnostics.Stopwatch]::StartNew()
+    $beforeFallback = Read-Board
+    Send-Keys @(4)
+    Assert-PauseMenu (Read-Snapshot)
+    $pauseMenuHold = 3
+    Start-Sleep -Seconds $pauseMenuHold
+    Send-Keys @(20, 23)
+    Assert-Menu (Read-Snapshot) '暂停菜单选择难度可进入现有难度与设置菜单'
+    Send-Keys @(20)
+    $difficultyMenuHold = 3
+    Start-Sleep -Seconds $difficultyMenuHold
+    Send-Keys @(4)
+    $afterFallback = Read-Board
+    $fallbackWatch.Stop()
+    Assert-Cursor $afterFallback $beforeFallback.Row $beforeFallback.Col '返回入口切换难度选项后取消保留光标'
+    Assert-That ($afterFallback.State -eq $beforeFallback.State -and $afterFallback.Opened -eq $beforeFallback.Opened -and $afterFallback.Flags -eq $beforeFallback.Flags -and $afterFallback.Mines -eq $beforeFallback.Mines -and -not $afterFallback.Paused) '返回入口取消难度选择保留原局和雷数，不提前新开局'
+    Assert-PauseSavedTime $beforeFallback $afterFallback $fallbackWatch.Elapsed.TotalSeconds ($pauseMenuHold + $difficultyMenuHold) '暂停菜单及转入难度菜单期间都暂停计时，取消后继续累计'
     $pauseWatch = [Diagnostics.Stopwatch]::StartNew()
     $beforeMenu = Read-Board
     Send-Keys @(82)

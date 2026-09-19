@@ -21,12 +21,13 @@
     <string name="sound_off">音效：关闭</string>
     <string name="help_title">轻松上手</string>
     <string name="continue_game">继续游戏</string>
+    <string name="choose_difficulty">选择难度</string>
     <string name="help_1">方向键移动；OK 单击插旗，再次单击取消。</string>
     <string name="help_2">连续两次 OK 翻开格子，间隔不超过 360 毫秒。</string>
     <string name="help_3">数字表示周围八格的雷数，第一步及周围安全。</string>
     <string name="help_4">数字周围旗数匹配时，双击数字可快速展开。</string>
     <string name="help_5">打开所有安全格即获胜；插错旗可能导致踩雷。</string>
-    <string name="help_6">MENU 选难度和音效；返回可保存并退出。</string>
+    <string name="help_6">返回打开暂停菜单，可选难度或退出；MENU 也可选难度。</string>
     <string name="help_7">每局雷数随机抽取，恢复对局不会改变雷数。</string>
     <string name="help_close">知道了，开始挑战</string>
     <string name="ready_status">第一步放心开，周围八格也安全</string>
@@ -40,8 +41,8 @@
     <string name="paused_title">休息一下</string>
     <string name="paused_sub">对局已保存，计时已暂停</string>
     <string name="paused_action">按 OK 继续</string>
-    <string name="exit_title">暂时离开？</string>
-    <string name="exit_sub">当前对局会自动保存，下次可以继续</string>
+    <string name="pause_menu_title">游戏已暂停</string>
+    <string name="pause_menu_sub">继续游戏、选择难度，或保存后退出</string>
     <string name="exit_action">保存并退出</string>
     <string name="win_title">成功排雷！</string>
     <string name="lose_title">下次一定更好</string>
@@ -49,10 +50,10 @@
     <string name="result_lose">已找到 %1$d 个安全格 · 用时 %2$s</string>
     <string name="play_again">再来一局</string>
     <string name="inspect_board">查看棋盘</string>
-    <string name="review_hint">方向键查看 · OK 再来一局 · MENU 选难度</string>
+    <string name="review_hint">方向键查看 · OK 再来一局 · 返回选难度</string>
     <string name="cursor_position">第 %1$d 行 · 第 %2$d 列</string>
     <string name="loading">正在准备棋盘…</string>
-    <string name="board_description">扫雷棋盘，方向键移动，单击确认插旗，双击确认翻开，菜单选择难度。</string>
+    <string name="board_description">扫雷棋盘，方向键移动，单击确认插旗，双击确认翻开，返回打开暂停菜单，可选择难度。</string>
     <string name="a11y_state">扫雷。状态：%1$s。行：%2$d。列：%3$d。已开：%4$d。旗帜：%5$d。用时：%6$d。暂停：%7$s。当前格：%8$s。雷数：%9$d。</string>
     <string name="a11y_ready">准备</string>
     <string name="a11y_playing">进行中</string>
@@ -68,7 +69,7 @@
     <string name="side_move">方向键 移动</string>
     <string name="side_open">双击 OK 翻开</string>
     <string name="side_flag">单击 OK 插旗</string>
-    <string name="side_back">返回 保存退出</string>
+    <string name="side_back">返回 暂停菜单</string>
     <string name="difficulty_meta_range">%1$d × %2$d · %3$d–%4$d 雷</string>
     <string name="side_menu">MENU 选难度</string>
 </resources>

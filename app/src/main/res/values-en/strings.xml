@@ -21,12 +21,13 @@
     <string name="sound_off">Sound: off</string>
     <string name="help_title">How to play</string>
     <string name="continue_game">Continue</string>
+    <string name="choose_difficulty">Choose difficulty</string>
     <string name="help_1">Arrows move. Press OK once to place or remove a flag.</string>
     <string name="help_2">Press OK twice within 360 ms to reveal a cell.</string>
     <string name="help_3">Numbers count nearby mines. Your first 3×3 area is safe.</string>
     <string name="help_4">Double press a number to clear neighbors when flags match.</string>
     <string name="help_5">Reveal every safe cell to win. Wrong flags can cause a loss.</string>
-    <string name="help_6">MENU selects difficulty and sound. Back saves and exits.</string>
+    <string name="help_6">Back opens pause options for difficulty or exit. MENU also opens difficulty.</string>
     <string name="help_7">Mines vary each new game. Restoring keeps the same mines.</string>
     <string name="help_close">Got it, let’s play</string>
     <string name="ready_status">A safe first move, including all eight neighbors</string>
@@ -40,8 +41,8 @@
     <string name="paused_title">Take a breath</string>
     <string name="paused_sub">Your game is saved. The timer is paused.</string>
     <string name="paused_action">Press OK to continue</string>
-    <string name="exit_title">Leaving for now?</string>
-    <string name="exit_sub">Your game is saved so you can continue next time</string>
+    <string name="pause_menu_title">Game paused</string>
+    <string name="pause_menu_sub">Continue, choose a difficulty, or save and exit</string>
     <string name="exit_action">Save and exit</string>
     <string name="win_title">Board cleared!</string>
     <string name="lose_title">One more try?</string>
@@ -49,10 +50,10 @@
     <string name="result_lose">%1$d safe cells revealed · Time %2$s</string>
     <string name="play_again">Play again</string>
     <string name="inspect_board">Inspect board</string>
-    <string name="review_hint">Arrows Inspect · OK Play again · MENU Difficulty</string>
+    <string name="review_hint">Arrows Inspect · OK Play again · Back Difficulty</string>
     <string name="cursor_position">ROW %1$d · COL %2$d</string>
     <string name="loading">Preparing your board…</string>
-    <string name="board_description">Minesweeper. Arrows move, single OK flags, double OK reveals, MENU opens difficulty.</string>
+    <string name="board_description">Minesweeper. Arrows move, single OK flags, double OK reveals. Back opens pause options to choose difficulty.</string>
     <string name="a11y_state">Minesweeper. State: %1$s. Row: %2$d. Column: %3$d. Opened: %4$d. Flags: %5$d. Seconds: %6$d. Paused: %7$s. Cell: %8$s. Mines: %9$d.</string>
     <string name="a11y_ready">Ready</string>
     <string name="a11y_playing">Playing</string>
@@ -68,7 +69,7 @@
     <string name="side_move">Arrows Move</string>
     <string name="side_open">Double OK Reveal</string>
     <string name="side_flag">Single OK Flag</string>
-    <string name="side_back">Back Save / exit</string>
+    <string name="side_back">Back Pause menu</string>
     <string name="difficulty_meta_range">%1$d × %2$d · %3$d–%4$d mines</string>
     <string name="side_menu">MENU Difficulty</string>
 </resources>

@@ -239,7 +239,7 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         }
     }
 
-    /** 返回先关闭当前弹层，否则显示默认选中“继续”的保存退出确认。 */
+    /** 返回先关闭当前弹层，否则显示可继续、选择难度或退出的暂停菜单。 */
     @Override public void back() {
         clicks.cancel();
         if (modal != null) {
@@ -247,7 +247,7 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
         } else if (engine == null) {
             finish();
         } else {
-            showExit();
+            showPauseMenu();
         }
     }
 
@@ -465,13 +465,16 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
                 });
     }
 
-    private void showExit() {
-        showModal(getString(R.string.exit_title), getString(R.string.exit_sub),
-                new String[]{getString(R.string.continue_game), getString(R.string.exit_action)},
+    private void showPauseMenu() {
+        showModal(getString(R.string.pause_menu_title), getString(R.string.pause_menu_sub),
+                new String[]{getString(R.string.continue_game), getString(R.string.choose_difficulty),
+                        getString(R.string.exit_action)},
                 getString(R.string.menu_hint), 0, new Selection() {
                     @Override public void select(int position) {
                         if (position == 0) {
                             closeModal(true);
+                        } else if (position == 1) {
+                            showMenu();
                         } else {
                             closeModal(false);
                             saveNow();
