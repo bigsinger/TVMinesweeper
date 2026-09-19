@@ -1,0 +1,94 @@
+apply plugin: 'com.android.application'
+
+def releaseRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase().matches('.*(assemblerelease|bundlerelease|publishrelease|^assemble$).*')
+}
+def versionFile = rootProject.file('version.properties')
+def appVersion = new Properties()
+versionFile.withInputStream { appVersion.load(it) }
+def versionNumber = appVersion.getProperty('VERSION_CODE').toInteger()
+def versionLabel = appVersion.getProperty('VERSION_NAME')
+if (releaseRequested) {
+    if (versionNumber > 0) {
+        def parts = versionLabel.split('\\.').collect { it.toInteger() }
+        versionLabel = "${parts[0]}.${parts[1]}.${parts[2] + 1}"
+    }
+    versionNumber++
+    versionFile.setText("VERSION_CODE=${versionNumber}\nVERSION_NAME=${versionLabel}\n", 'UTF-8')
+}
+
+def signingFile = file(System.getenv('TVMINESWEEPER_SIGNING_PROPERTIES') ?: 'E:/temp/TVMinesweeper/signing.properties')
+def signingValues = new Properties()
+if (signingFile.exists()) {
+    signingFile.withInputStream { signingValues.load(it) }
+}
+
+android {
+    compileSdkVersion 28
+    buildToolsVersion '30.0.3'
+
+    defaultConfig {
+        applicationId 'com.bigsinger.tvminesweeper'
+        minSdkVersion 18
+        targetSdkVersion 28
+        versionCode Math.max(versionNumber, 1)
+        versionName versionLabel
+    }
+
+    signingConfigs {
+        release {
+            if (signingFile.exists()) {
+                storeFile file(signingValues.getProperty('storeFile'))
+                storePassword signingValues.getProperty('storePassword')
+                keyAlias signingValues.getProperty('keyAlias')
+                keyPassword signingValues.getProperty('keyPassword')
+            }
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lintOptions {
+        abortOnError true
+        checkReleaseBuilds true
+        warningsAsErrors false
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = false
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "TVMinesweeper-${variant.buildType.name}-${variant.versionName}.apk"
+        }
+        if (variant.buildType.name == 'release') {
+            variant.assembleProvider.configure {
+                doLast {
+                    copy {
+                        from variant.outputs.collect { it.outputFile }
+                        into rootProject.file('release')
+                    }
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

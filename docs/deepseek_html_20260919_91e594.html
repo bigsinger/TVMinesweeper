@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TVMinesweeper · 扫雷 TV 版原型</title>
+<style>
+    :root {
+        --bg-deep: #05070a;
+        --panel: #0f151d;
+        --panel-2: #131a24;
+        --line: #1e2a38;
+        --line-soft: #223040;
+        --text: #e6edf3;
+        --text-dim: #7d8b9a;
+        --accent: #38e1c8;
+        --gold: #ffd166;
+        --silver: #c9d4e0;
+        --bronze: #d08a56;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg-deep);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .viewport {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .stage {
+        width: 1920px;
+        height: 1080px;
+        flex: 0 0 auto;
+        display: flex;
+        gap: 36px;
+        padding: 48px;
+        transform-origin: center center;
+        background:
+            radial-gradient(ellipse 1200px 700px at 50% -10%, #16202c 0%, transparent 65%),
+            radial-gradient(ellipse 900px 600px at 100% 110%, #10202a 0%, transparent 60%),
+            linear-gradient(160deg, #0a0e13 0%, #05070a 100%);
+    }
+
+    .rank-panel {
+        flex: 0 0 340px;
+        width: 340px;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+        border: 1px solid var(--line-soft);
+        border-radius: 18px;
+        overflow: hidden;
+    }
+
+    .rank-head {
+        padding: 26px 24px 18px;
+        border-bottom: 1px solid var(--line);
+        position: relative;
+    }
+
+    .rank-head::after {
+        content: '';
+        position: absolute;
+        left: 24px;
+        bottom: -1px;
+        width: 56px;
+        height: 2px;
+        background: var(--accent);
+        box-shadow: 0 0 12px var(--accent);
+    }
+
+    .rank-title { font-size: 24px; font-weight: 800; letter-spacing: 2px; }
+    .rank-sub   { margin-top: 6px; font-size: 13px; color: var(--text-dim); letter-spacing: 1px; }
+
+    .rank-list {
+        flex: 1;
+        padding: 16px 16px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow: hidden;
+    }
+
+    .rank-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 68px;
+        padding: 0 14px;
+        border-radius: 12px;
+        background: linear-gradient(120deg, #161f2a, #121a23);
+        border: 1px solid transparent;
+    }
+
+    .rank-item.top1 { border-color: rgba(255, 209, 102, .35); background: linear-gradient(120deg, #241f14, #161a1f); }
+    .rank-item.top2 { border-color: rgba(201, 212, 224, .25); }
+    .rank-item.top3 { border-color: rgba(208, 138, 86, .28); }
+    .rank-item.is-new { animation: flashNew 1.1s ease-out 3; }
+
+    @keyframes flashNew {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(56, 225, 200, 0); }
+        50%      { box-shadow: 0 0 0 3px rgba(56, 225, 200, .45); }
+    }
+
+    .rank-no {
+        flex: 0 0 32px;
+        height: 32px;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        font-weight: 800;
+        background: #1c2733;
+        color: var(--text-dim);
+    }
+
+    .rank-item.top1 .rank-no { background: var(--gold);   color: #1a1206; }
+    .rank-item.top2 .rank-no { background: var(--silver); color: #14181d; }
+    .rank-item.top3 .rank-no { background: var(--bronze); color: #1a1008; }
+
+    .rank-body { flex: 1; min-width: 0; }
+
+    .rank-score {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--accent);
+        line-height: 1.15;
+        letter-spacing: .5px;
+    }
+
+    .rank-score small { font-size: 12px; font-weight: 600; color: var(--text-dim); margin-left: 3px; }
+
+    .rank-meta {
+        margin-top: 3px;
+        font-size: 12px;
+        color: var(--text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .rank-tag {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: #1e2b38;
+        color: #8fa3b8;
+        font-size: 11px;
+        margin-right: 5px;
+    }
+
+    .rank-foot {
+        padding: 14px 24px 20px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: #5d6b7a;
+        letter-spacing: 1px;
+        line-height: 1.8;
+    }
+
+    .play-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+
+    .hud { flex: 0 0 86px; height: 86px; display: flex; align-items: center; gap: 16px; }
+
+    .hud-card {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 26px;
+        border-radius: 14px;
+        background: linear-gradient(160deg, #131b25, #0e141b);
+        border: 1px solid var(--line-soft);
+    }
+
+    .hud-card .ico { font-size: 24px; line-height: 1; opacity: .9; }
+
+    .hud-val {
+        font-size: 30px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 1px;
+        min-width: 76px;
+    }
+
+    .hud-lab { font-size: 12px; color: var(--text-dim); letter-spacing: 2px; margin-top: 2px; }
+
+    .hud-card.timer .hud-val { color: var(--accent); }
+
+    .hud-spacer { flex: 1; }
+
+    .diff-pill {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 26px;
+        border-radius: 14px;
+        background: linear-gradient(160deg, #16222c, #101820);
+        border: 1px solid #24384a;
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: #9fd8cf;
+    }
+
+    .diff-pill .menu-key {
+        font-size: 11px;
+        letter-spacing: 1px;
+        color: #5d7280;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #1a2532;
+        border: 1px solid #2a3846;
+    }
+
+    .board-wrap {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .board {
+        display: grid;
+        gap: 3px;
+        padding: 12px;
+        border-radius: 16px;
+        background: linear-gradient(160deg, #0d131b, #090d13);
+        border: 1px solid var(--line);
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, .015) inset,
+            0 24px 60px rgba(0, 0, 0, .55);
+    }
+
+    .cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        font-weight: 800;
+        line-height: 1;
+        user-select: none;
+        background: linear-gradient(160deg, #36434f 0%, #26313d 55%, #202a35 100%);
+        box-shadow:
+            0 1px 0 rgba(255, 255, 255, .09) inset,
+            0 -1px 0 rgba(0, 0, 0, .35) inset;
+        transition: box-shadow .12s ease, background .12s ease;
+        position: relative;
+    }
+
+    .cell.cursor {
+        z-index: 3;
+        background: linear-gradient(160deg, #43566a 0%, #2e3d4c 100%);
+        box-shadow:
+            0 0 0 3px var(--accent),
+            0 0 22px rgba(56, 225, 200, .55),
+            0 0 0 3px rgba(56, 225, 200, .15) inset;
+    }
+
+    .cell.revealed {
+        background: #0f1720;
+        box-shadow: 0 0 0 1px #1b2632 inset;
+    }
+
+    .cell.n1 { color: #5aa9ff; }
+    .cell.n2 { color: #4ade80; }
+    .cell.n3 { color: #ff6b6b; }
+    .cell.n4 { color: #c084fc; }
+    .cell.n5 { color: #fbbf24; }
+    .cell.n6 { color: #22d3ee; }
+    .cell.n7 { color: #e5e7eb; }
+    .cell.n8 { color: #9ca3af; }
+
+    .cell.flagged {
+        background: linear-gradient(160deg, #3a2f18 0%, #2a2113 100%);
+        box-shadow: 0 0 0 1px #4a3c1e inset;
+        font-size: .8em;
+    }
+
+    .cell.mine {
+        background: linear-gradient(160deg, #3a1c1c, #241010);
+        box-shadow: 0 0 0 1px #5a2424 inset;
+        font-size: .8em;
+    }
+
+    .cell.exploded {
+        background: linear-gradient(160deg, #d93a3a, #8f1f1f);
+        box-shadow: 0 0 0 3px #ff5a5a, 0 0 30px rgba(255, 70, 70, .8);
+        animation: boom .45s ease-out;
+    }
+
+    @keyframes boom {
+        0%   { transform: scale(.7); }
+        60%  { transform: scale(1.12); }
+        100% { transform: scale(1); }
+    }
+
+    .cell.wrong {
+        background: linear-gradient(160deg, #2a2a2a, #1a1a1a);
+        color: #ff5a5a;
+        box-shadow: 0 0 0 1px #6b2b2b inset;
+        font-size: .8em;
+    }
+
+    .footer {
+        flex: 0 0 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 0 4px;
+        font-size: 14px;
+        color: #64748b;
+        letter-spacing: 1px;
+        flex-wrap: nowrap;
+    }
+
+    .key {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+        height: 24px;
+        padding: 0 7px;
+        margin-right: 6px;
+        border-radius: 6px;
+        background: #1a232e;
+        border: 1px solid #2a3846;
+        border-bottom-width: 2px;
+        color: #9fb3c8;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .hint-item { display: inline-flex; align-items: center; white-space: nowrap; }
+
+    .status-msg {
+        margin-left: auto;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--accent);
+        opacity: 0;
+        transition: opacity .3s;
+        white-space: nowrap;
+    }
+
+    .status-msg.show { opacity: 1; }
+    .status-msg.bad  { color: #ff6b6b; }
+    .status-msg.good { color: #4ade80; }
+
+    .menu-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(5, 7, 10, .8);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .18s ease;
+    }
+
+    .menu-overlay.show { opacity: 1; pointer-events: auto; }
+
+    .menu-box {
+        width: 560px;
+        padding: 36px 36px 28px;
+        border-radius: 22px;
+        background: linear-gradient(160deg, #131b25, #0c1219);
+        border: 1px solid #24384a;
+        box-shadow:
+            0 30px 90px rgba(0, 0, 0, .7),
+            0 0 0 1px rgba(56, 225, 200, .06) inset;
+    }
+
+    .menu-title {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 6px;
+        text-align: center;
+        margin-bottom: 26px;
+        color: #9fd8cf;
+    }
+
+    .menu-options { display: flex; flex-direction: column; gap: 12px; }
+
+    .menu-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 24px;
+        border-radius: 12px;
+        background: #10161e;
+        border: 1px solid #1e2a38;
+        transition: all .15s ease;
+    }
+
+    .menu-option.selected {
+        border-color: var(--accent);
+        background: linear-gradient(120deg, rgba(56, 225, 200, .14), rgba(56, 225, 200, .04));
+        box-shadow:
+            0 0 0 1px var(--accent),
+            0 0 26px rgba(56, 225, 200, .28);
+        transform: translateX(6px);
+    }
+
+    .menu-opt-name { font-size: 20px; font-weight: 800; color: #d8e3ed; letter-spacing: 2px; }
+    .menu-option.selected .menu-opt-name { color: #eafffb; }
+
+    .menu-opt-meta { font-size: 13px; color: #7d8b9a; letter-spacing: 1px; }
+    .menu-option.selected .menu-opt-meta { color: #9fd8cf; }
+
+    .menu-hint {
+        margin-top: 24px;
+        text-align: center;
+        font-size: 12px;
+        color: #5d6b7a;
+        letter-spacing: 2px;
+        line-height: 1.9;
+    }
+</style>
+</head>
+<body>
+
+<div class="viewport">
+    <div class="stage" id="stage">
+
+        <aside class="rank-panel">
+            <div class="rank-head">
+                <div class="rank-title">积分排行榜</div>
+                <div class="rank-sub">RANKING · TOP 8</div>
+            </div>
+            <div class="rank-list" id="rankList"></div>
+            <div class="rank-foot">
+                MENU 切换难度 · R 重新开始
+            </div>
+        </aside>
+
+        <section class="play-panel">
+
+            <header class="hud">
+                <div class="hud-card">
+                    <div class="ico">🚩</div>
+                    <div>
+                        <div class="hud-val" id="mineLeft">10</div>
+                        <div class="hud-lab">剩余雷数</div>
+                    </div>
+                </div>
+                <div class="hud-card timer">
+                    <div class="ico">⏱</div>
+                    <div>
+                        <div class="hud-val" id="timerVal">0</div>
+                        <div class="hud-lab">用时 / 秒</div>
+                    </div>
+                </div>
+                <div class="hud-spacer"></div>
+                <div class="diff-pill" id="diffPill">
+                    <span id="diffText">初级 · 9 × 9</span>
+                    <span class="menu-key">MENU</span>
+                </div>
+            </header>
+
+            <div class="board-wrap" id="boardWrap">
+                <div class="board" id="board"></div>
+            </div>
+
+            <footer class="footer">
+                <span class="hint-item"><span class="key">↑↓←→</span>移动</span>
+                <span class="hint-item"><span class="key">OK</span>翻开</span>
+                <span class="hint-item"><span class="key">OK×2</span>插旗</span>
+                <span class="hint-item"><span class="key">音量±</span>插旗</span>
+                <span class="hint-item"><span class="key">MENU</span>难度</span>
+                <span class="hint-item"><span class="key">R</span>重开</span>
+                <span class="status-msg" id="statusMsg"></span>
+            </footer>
+
+        </section>
+    </div>
+</div>
+
+<div class="menu-overlay" id="menuOverlay">
+    <div class="menu-box">
+        <div class="menu-title">选择难度</div>
+        <div class="menu-options" id="menuOptions">
+            <div class="menu-option" data-diff="1">
+                <div class="menu-opt-name">初级</div>
+                <div class="menu-opt-meta">9 × 9 · 10 雷</div>
+            </div>
+            <div class="menu-option" data-diff="2">
+                <div class="menu-opt-name">中级</div>
+                <div class="menu-opt-meta">16 × 16 · 40 雷</div>
+            </div>
+            <div class="menu-option" data-diff="3">
+                <div class="menu-opt-name">高级</div>
+                <div class="menu-opt-meta">30 × 16 · 99 雷</div>
+            </div>
+        </div>
+        <div class="menu-hint">
+            ↑↓ 选择 · OK 确认<br>
+            再按 MENU 或 Esc 取消
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var GAP = 3;
+
+    var DIFFS = {
+        '1': { key: 'easy',   rows: 9,  cols: 9,  mines: 10, name: '初级', weight: 1, label: '初级 · 9 × 9'    },
+        '2': { key: 'medium', rows: 16, cols: 16, mines: 40, name: '中级', weight: 3, label: '中级 · 16 × 16'  },
+        '3': { key: 'hard',   rows: 16, cols: 30, mines: 99, name: '高级', weight: 8, label: '高级 · 30 × 16' }
+    };
+
+    var LS_KEY = 'tvminesweeper_ranks_v1';
+    var MAX_RANK_ROWS = 8;
+
+    var stageEl     = document.getElementById('stage');
+    var boardEl     = document.getElementById('board');
+    var boardWrap   = document.getElementById('boardWrap');
+    var rankListEl  = document.getElementById('rankList');
+    var mineLeftEl  = document.getElementById('mineLeft');
+    var timerEl     = document.getElementById('timerVal');
+    var diffPillEl  = document.getElementById('diffPill');
+    var diffTextEl  = document.getElementById('diffText');
+    var statusEl    = document.getElementById('statusMsg');
+    var menuOverlay = document.getElementById('menuOverlay');
+    var menuOptions = document.getElementById('menuOptions');
+    var menuOpts    = menuOptions.querySelectorAll('.menu-option');
+
+    var cfg, grid, cells, cursor;
+    var phase;
+    var flagCount, revealedCount, elapsed;
+    var timerId = null, startTs = 0, cellSize = 40;
+    var currentDiffKey = '1';
+    var lastRankId = null;
+
+    var menuOpen = false;
+    var menuIndex = 0;
+
+    var okTimer = null;
+    var okPending = false;
+    var OK_SINGLE_DELAY = 240;
+
+    function init() {
+        seedDemoRanks();
+        newGame('1');
+        fitStage();
+        window.addEventListener('resize', fitStage);
+        document.addEventListener('keydown', onKeyDown);
+    }
+
+    function fitStage() {
+        var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+        stageEl.style.transform = 'scale(' + s + ')';
+    }
+
+    function newGame(diffKey) {
+        currentDiffKey = diffKey;
+        cfg = DIFFS[diffKey];
+
+        grid = [];
+        for (var r = 0; r < cfg.rows; r++) {
+            grid[r] = [];
+            for (var c = 0; c < cfg.cols; c++) {
+                grid[r][c] = { mine: false, adj: 0, revealed: false, flagged: false, exploded: false };
+            }
+        }
+
+        cursor = { r: 0, c: 0 };
+        phase = 'ready';
+        flagCount = 0;
+        revealedCount = 0;
+        elapsed = 0;
+        stopTimer();
+        cancelOkPending();
+
+        diffTextEl.textContent = cfg.label;
+        updateHud();
+        setStatus('', '');
+        buildCells();
+        layoutBoard();
+        render();
+    }
+
+    function buildCells() {
+        boardEl.innerHTML = '';
+        cells = [];
+        for (var r = 0; r < cfg.rows; r++) {
+            cells[r] = [];
+            for (var c = 0; c < cfg.cols; c++) {
+                var d = document.createElement('div');
+                d.className = 'cell';
+                boardEl.appendChild(d);
+                cells[r][c] = d;
+            }
+        }
+    }
+
+    function layoutBoard() {
+        var availW = boardWrap.clientWidth  - 40;
+        var availH = boardWrap.clientHeight - 40;
+
+        var w = (availW - (cfg.cols - 1) * GAP) / cfg.cols;
+        var h = (availH - (cfg.rows - 1) * GAP) / cfg.rows;
+
+        cellSize = Math.max(24, Math.floor(Math.min(w, h, 96)));
+
+        boardEl.style.gridTemplateColumns = 'repeat(' + cfg.cols + ', ' + cellSize + 'px)';
+        boardEl.style.gridTemplateRows    = 'repeat(' + cfg.rows + ', ' + cellSize + 'px)';
+        boardEl.style.fontSize = Math.max(11, Math.floor(cellSize * 0.5)) + 'px';
+    }
+
+    function render() {
+        for (var r = 0; r < cfg.rows; r++) {
+            for (var c = 0; c < cfg.cols; c++) {
+                var g = grid[r][c];
+                var el = cells[r][c];
+                var cls = 'cell';
+                var txt = '';
+
+                if (g.revealed) {
+                    cls += ' revealed';
+                    if (g.mine) { cls += ' mine'; txt = '💣'; }
+                    else if (g.adj > 0) { cls += ' n' + g.adj; txt = String(g.adj); }
+                } else {
+                    if (g.flagged) { cls += ' flagged'; txt = '🚩'; }
+                    if (phase === 'lost' && g.mine && !g.flagged) { cls += ' mine'; txt = '💣'; }
+                    if (phase === 'lost' && g.flagged && !g.mine) { cls += ' wrong'; txt = '✕'; }
+                }
+
+                if (g.exploded) cls += ' exploded';
+                if (r === cursor.r && c === cursor.c) cls += ' cursor';
+
+                if (el.className !== cls) el.className = cls;
+                if (el.textContent !== txt) el.textContent = txt;
+            }
+        }
+    }
+
+    function moveCursor(dr, dc) {
+        if (phase === 'won' || phase === 'lost') return;
+        var nr = cursor.r + dr;
+        var nc = cursor.c + dc;
+        if (nr < 0 || nr >= cfg.rows || nc < 0 || nc >= cfg.cols) return;
+
+        var old = cells[cursor.r][cursor.c];
+        if (old) old.classList.remove('cursor');
+
+        cursor.r = nr;
+        cursor.c = nc;
+
+        var el = cells[nr][nc];
+        if (el) el.classList.add('cursor');
+    }
+
+    function placeMines(sr, sc) {
+        var forbidden = {};
+        forbidden[sr * cfg.cols + sc] = true;
+        forEachNeighbor(sr, sc, function (r, c) { forbidden[r * cfg.cols + c] = true; });
+
+        var pool = [];
+        for (var r = 0; r < cfg.rows; r++) {
+            for (var c = 0; c < cfg.cols; c++) {
+                if (!forbidden[r * cfg.cols + c]) pool.push([r, c]);
+            }
+        }
+
+        for (var i = pool.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+        }
+
+        var n = Math.min(cfg.mines, pool.length);
+        for (var k = 0; k < n; k++) grid[pool[k][0]][pool[k][1]].mine = true;
+
+        for (var rr = 0; rr < cfg.rows; rr++) {
+            for (var cc = 0; cc < cfg.cols; cc++) {
+                if (grid[rr][cc].mine) continue;
+                var cnt = 0;
+                forEachNeighbor(rr, cc, function (nr, nc) { if (grid[nr][nc].mine) cnt++; });
+                grid[rr][cc].adj = cnt;
+            }
+        }
+    }
+
+    function forEachNeighbor(r, c, fn) {
+        for (var dr = -1; dr <= 1; dr++) {
+            for (var dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                var nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < cfg.rows && nc >= 0 && nc < cfg.cols) fn(nr, nc);
+            }
+        }
+    }
+
+    function reveal(r, c) {
+        if (phase === 'won' || phase === 'lost') return;
+
+        var g = grid[r][c];
+        if (g.revealed || g.flagged) return;
+
+        if (phase === 'ready') {
+            placeMines(r, c);
+            phase = 'playing';
+            startTimer();
+        }
+
+        if (g.mine) {
+            g.revealed = true;
+            g.exploded = true;
+            phase = 'lost';
+            stopTimer();
+            render();
+            setStatus('💥 踩雷了！按 R 重新开始', 'bad');
+            return;
+        }
+
+        floodReveal(r, c);
+        render();
+
+        if (revealedCount === cfg.rows * cfg.cols - cfg.mines) onWin();
+    }
+
+    function floodReveal(r0, c0) {
+        var stack = [[r0, c0]];
+        while (stack.length) {
+            var cur = stack.pop();
+            var r = cur[0], c = cur[1];
+            var g = grid[r][c];
+            if (g.revealed || g.flagged) continue;
+
+            g.revealed = true;
+            revealedCount++;
+
+            if (g.adj === 0) {
+                forEachNeighbor(r, c, function (nr, nc) {
+                    var nb = grid[nr][nc];
+                    if (!nb.revealed && !nb.mine && !nb.flagged) stack.push([nr, nc]);
+                });
+            }
+        }
+    }
+
+    function toggleFlag() {
+        if (phase === 'won' || phase === 'lost') return;
+
+        var g = grid[cursor.r][cursor.c];
+        if (g.revealed) return;
+
+        g.flagged = !g.flagged;
+        flagCount += g.flagged ? 1 : -1;
+
+        render();
+        updateHud();
+    }
+
+    function onWin() {
+        phase = 'won';
+        stopTimer();
+
+        for (var r = 0; r < cfg.rows; r++) {
+            for (var c = 0; c < cfg.cols; c++) {
+                var g = grid[r][c];
+                if (g.mine && !g.flagged) { g.flagged = true; flagCount++; }
+            }
+        }
+        render();
+        updateHud();
+
+        var score = calcScore(elapsed);
+        lastRankId = saveRank({
+            score: score,
+            time: elapsed,
+            diff: cfg.name,
+            diffKey: cfg.key,
+            date: formatDate(new Date())
+        });
+
+        renderRanks();
+        setStatus('🎉 通关！用时 ' + elapsed + ' 秒 · 积分 ' + score, 'good');
+    }
+
+    function calcScore(sec) {
+        if (sec <= 0) sec = 1;
+        return Math.round(cfg.weight * 10000 / sec);
+    }
+
+    function startTimer() {
+        startTs = Date.now();
+        elapsed = 0;
+        updateHud();
+        timerId = setInterval(function () {
+            elapsed = Math.floor((Date.now() - startTs) / 1000);
+            updateHud();
+        }, 250);
+    }
+
+    function stopTimer() {
+        if (timerId) { clearInterval(timerId); timerId = null; }
+    }
+
+    function updateHud() {
+        mineLeftEl.textContent = String(Math.max(0, cfg.mines - flagCount));
+        timerEl.textContent = String(elapsed);
+    }
+
+    var statusTimer = null;
+    function setStatus(text, type) {
+        statusEl.textContent = text || '';
+        statusEl.className = 'status-msg' + (text ? ' show ' + (type || '') : '');
+        if (statusTimer) clearTimeout(statusTimer);
+        if (text) {
+            statusTimer = setTimeout(function () {
+                statusEl.classList.remove('show');
+            }, 4200);
+        }
+    }
+
+    function loadRanks() {
+        try {
+            var raw = localStorage.getItem(LS_KEY);
+            var list = raw ? JSON.parse(raw) : [];
+            return Array.isArray(list) ? list : [];
+        } catch (e) { return []; }
+    }
+
+    function saveRank(entry) {
+        var list = loadRanks();
+        entry.id = 'r' + Date.now() + Math.floor(Math.random() * 1000);
+        list.push(entry);
+        list.sort(function (a, b) { return b.score - a.score; });
+        list = list.slice(0, 20);
+        try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch (e) {}
+        return entry.id;
+    }
+
+    function seedDemoRanks() {
+        if (loadRanks().length > 0) return;
+        var demo = [
+            { score: 486, time: 21,  diff: '初级', diffKey: 'easy',   date: '01-12' },
+            { score: 435, time: 23,  diff: '初级', diffKey: 'easy',   date: '01-09' },
+            { score: 400, time: 200, diff: '高级', diffKey: 'hard',   date: '01-15' },
+            { score: 358, time: 28,  diff: '初级', diffKey: 'easy',   date: '01-07' },
+            { score: 341, time: 88,  diff: '中级', diffKey: 'medium', date: '01-14' },
+            { score: 306, time: 98,  diff: '中级', diffKey: 'medium', date: '01-11' },
+            { score: 267, time: 112, diff: '中级', diffKey: 'medium', date: '01-06' },
+            { score: 235, time: 34,  diff: '初级', diffKey: 'easy',   date: '01-05' }
+        ];
+        try { localStorage.setItem(LS_KEY, JSON.stringify(demo)); } catch (e) {}
+    }
+
+    function renderRanks() {
+        var list = loadRanks().slice(0, MAX_RANK_ROWS);
+        var html = '';
+
+        for (var i = 0; i < list.length; i++) {
+            var it = list[i];
+            var cls = 'rank-item';
+            if (i === 0) cls += ' top1';
+            else if (i === 1) cls += ' top2';
+            else if (i === 2) cls += ' top3';
+            if (it.id && it.id === lastRankId) cls += ' is-new';
+
+            html += '<div class="' + cls + '">'
+                 +    '<div class="rank-no">' + (i + 1) + '</div>'
+                 +    '<div class="rank-body">'
+                 +      '<div class="rank-score">' + it.score + '<small>分</small></div>'
+                 +      '<div class="rank-meta">'
+                 +        '<span class="rank-tag">' + it.diff + '</span>'
+                 +        it.time + '秒 · ' + it.date
+                 +      '</div>'
+                 +    '</div>'
+                 +  '</div>';
+        }
+
+        if (!html) {
+            html = '<div style="color:#4a5764;font-size:13px;padding:16px 6px;line-height:1.8;">'
+                 + '暂无记录<br>通关后自动写入排行榜</div>';
+        }
+
+        rankListEl.innerHTML = html;
+    }
+
+    function formatDate(d) {
+        var m = d.getMonth() + 1;
+        var day = d.getDate();
+        return (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
+    }
+
+    function openMenu() {
+        menuOpen = true;
+        menuIndex = parseInt(currentDiffKey, 10) - 1;
+        if (menuIndex < 0 || menuIndex > 2) menuIndex = 0;
+        renderMenu();
+        menuOverlay.classList.add('show');
+    }
+
+    function closeMenu() {
+        menuOpen = false;
+        menuOverlay.classList.remove('show');
+    }
+
+    function renderMenu() {
+        for (var i = 0; i < menuOpts.length; i++) {
+            if (i === menuIndex) menuOpts[i].classList.add('selected');
+            else menuOpts[i].classList.remove('selected');
+        }
+    }
+
+    function confirmMenu() {
+        var diff = String(menuIndex + 1);
+        closeMenu();
+        newGame(diff);
+        setStatus('已切换到 ' + DIFFS[diff].name + ' 难度', 'good');
+    }
+
+    function cancelOkPending() {
+        if (okTimer) { clearTimeout(okTimer); okTimer = null; }
+        okPending = false;
+    }
+
+    function handleOkPress() {
+        if (okPending) {
+            cancelOkPending();
+            toggleFlag();
+            return;
+        }
+
+        okPending = true;
+        okTimer = setTimeout(function () {
+            okTimer = null;
+            okPending = false;
+            reveal(cursor.r, cursor.c);
+        }, OK_SINGLE_DELAY);
+    }
+
+    function onKeyDown(e) {
+        var k = e.key;
+        if (e.repeat) return;
+
+        if (menuOpen) {
+            if (k === 'ArrowUp' || k === 'w' || k === 'W') {
+                e.preventDefault();
+                menuIndex = (menuIndex + menuOpts.length - 1) % menuOpts.length;
+                renderMenu();
+                return;
+            }
+            if (k === 'ArrowDown' || k === 's' || k === 'S') {
+                e.preventDefault();
+                menuIndex = (menuIndex + 1) % menuOpts.length;
+                renderMenu();
+                return;
+            }
+            if (k === 'Enter' || k === ' ' || k === 'Spacebar' || k === 'OK') {
+                e.preventDefault();
+                confirmMenu();
+                return;
+            }
+            if (k === 'Escape' || k === 'ContextMenu' || k === 'Menu' ||
+                k === 'm' || k === 'M' || k === 'Backspace') {
+                e.preventDefault();
+                closeMenu();
+                return;
+            }
+            e.preventDefault();
+            return;
+        }
+
+        if (k === 'ArrowUp'    || k === 'w' || k === 'W') { e.preventDefault(); moveCursor(-1, 0); return; }
+        if (k === 'ArrowDown'  || k === 's' || k === 'S') { e.preventDefault(); moveCursor(1, 0);  return; }
+        if (k === 'ArrowLeft'  || k === 'a' || k === 'A') { e.preventDefault(); moveCursor(0, -1); return; }
+        if (k === 'ArrowRight' || k === 'd' || k === 'D') { e.preventDefault(); moveCursor(0, 1);  return; }
+
+        if (k === 'Enter') {
+            e.preventDefault();
+            handleOkPress();
+            return;
+        }
+
+        if (k === 'VolumeUp' || k === 'VolumeDown' ||
+            k === '+' || k === '=' || k === '-' || k === '_') {
+            e.preventDefault();
+            toggleFlag();
+            return;
+        }
+
+        if (k === 'ContextMenu' || k === 'Menu' || k === 'm' || k === 'M') {
+            e.preventDefault();
+            openMenu();
+            return;
+        }
+
+        if (k === ' ' || k === 'Spacebar') {
+            e.preventDefault();
+            cancelOkPending();
+            reveal(cursor.r, cursor.c);
+            return;
+        }
+
+        if (k === 'f' || k === 'F') {
+            e.preventDefault();
+            cancelOkPending();
+            toggleFlag();
+            return;
+        }
+
+        if (k === 'r' || k === 'R') {
+            e.preventDefault();
+            cancelOkPending();
+            newGame(currentDiffKey);
+            return;
+        }
+
+        if (k === '1' || k === '2' || k === '3') {
+            e.preventDefault();
+            cancelOkPending();
+            newGame(k);
+            return;
+        }
+    }
+
+    renderRanks();
+    init();
+
+    requestAnimationFrame(function () {
+        layoutBoard();
+        render();
+    });
+
+})();
+</script>
+</body>
+</html>
