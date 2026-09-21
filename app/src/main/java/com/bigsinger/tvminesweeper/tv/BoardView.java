@@ -68,7 +68,8 @@ public final class BoardView extends View {
     private float offsetY;
     private float boardLeft;
     private float boardTop;
-    private float cellSize;
+    private float cellWidth;
+    private float cellHeight;
     private float edge = OUTER_MARGIN_PX;
     private float rankRight;
     private float infoLeft;
@@ -147,7 +148,13 @@ public final class BoardView extends View {
 
     /** Maps the persisted difficulty ordinal to a localized label. */
     public static int difficultyLabel(int ordinal) {
-        return ordinal == 2 ? R.string.expert : ordinal == 1 ? R.string.intermediate : R.string.beginner;
+        switch (ordinal) {
+            case 1: return R.string.intermediate;
+            case 2: return R.string.advanced;
+            case 3: return R.string.hard;
+            case 4: return R.string.challenge;
+            default: return R.string.beginner;
+        }
     }
 
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
@@ -270,12 +277,15 @@ public final class BoardView extends View {
     private void drawBoard(Canvas canvas) {
         int rows = engine.getRows();
         int cols = engine.getCols();
-        cellSize = Math.min((gameRight - gameLeft - 2 * BOARD_PADDING) / cols,
-                (gameBottom - edge - 2 * BOARD_PADDING) / rows);
-        float width = cols * cellSize;
-        float height = rows * cellSize;
+        // All boards fill the available height. New five-level layouts keep square cells;
+        // a restored legacy wide board may use taller cells without shrinking the whole field.
+        cellHeight = (gameBottom - edge - 2 * BOARD_PADDING) / rows;
+        cellWidth = Math.min((gameRight - gameLeft - 2 * BOARD_PADDING) / cols, cellHeight);
+        float symbolSize = Math.min(cellWidth, cellHeight);
+        float width = cols * cellWidth;
+        float height = rows * cellHeight;
         boardLeft = (gameLeft + gameRight - width) / 2f;
-        boardTop = (edge + gameBottom - height) / 2f;
+        boardTop = edge + BOARD_PADDING;
         box(canvas, boardLeft - BOARD_PADDING, boardTop - BOARD_PADDING,
                 boardLeft + width + BOARD_PADDING, boardTop + height + BOARD_PADDING,
                 18, 0xff091019, LINE);
@@ -283,38 +293,39 @@ public final class BoardView extends View {
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 Cell cell = engine.getCell(r, c);
-                float x = boardLeft + c * cellSize;
-                float y = boardTop + r * cellSize;
-                float edge = cellSize - 3;
+                float x = boardLeft + c * cellWidth;
+                float y = boardTop + r * cellHeight;
+                float right = x + cellWidth - 3;
+                float bottom = y + cellHeight - 3;
                 int fill = cell.isOpened() ? 0xff101923 : 0xff2d3b48;
                 if (cell.isFlagged()) { fill = 0xff3a3020; }
                 if (lost && cell.isMine()) { fill = cell.isExploded() ? 0xffb53743 : 0xff42252b; }
-                box(canvas, x + 1, y + 1, x + edge, y + edge, Math.min(6, cellSize / 9), fill,
+                box(canvas, x + 1, y + 1, right, bottom, Math.min(6, symbolSize / 9), fill,
                         cell.isOpened() ? 0xff1b2b38 : 0xff40505f);
                 if (!cell.isOpened() && !cell.isFlagged() && !(lost && cell.isMine())) {
-                    line(canvas, x + 7, y + 3, x + edge - 6, y + 3, 0xff53616c, 1);
+                    line(canvas, x + 7, y + 3, right - 6, y + 3, 0xff53616c, 1);
                 }
-                float centerX = x + (cellSize - 2) / 2f;
-                float centerY = y + (cellSize - 2) / 2f;
+                float centerX = x + (cellWidth - 2) / 2f;
+                float centerY = y + (cellHeight - 2) / 2f;
                 if (cell.isFlagged()) {
-                    flag(canvas, centerX, centerY, cellSize * 0.27f, GOLD);
+                    flag(canvas, centerX, centerY, symbolSize * 0.27f, GOLD);
                     if (lost && !cell.isMine()) {
-                        line(canvas, x + 7, y + 7, x + edge - 6, y + edge - 6, RED, 3);
-                        line(canvas, x + edge - 6, y + 7, x + 7, y + edge - 6, RED, 3);
+                        line(canvas, x + 7, y + 7, right - 6, bottom - 6, RED, 3);
+                        line(canvas, right - 6, y + 7, x + 7, bottom - 6, RED, 3);
                     }
                 } else if (lost && cell.isMine()) {
-                    mine(canvas, centerX, centerY, cellSize * 0.22f, cell.isExploded() ? INK : RED);
+                    mine(canvas, centerX, centerY, symbolSize * 0.22f, cell.isExploded() ? INK : RED);
                 } else if (cell.isOpened() && cell.getAdjacentMines() > 0) {
                     centeredText(canvas, String.valueOf(cell.getAdjacentMines()), centerX, centerY,
-                            Math.min(56, cellSize * 0.77f), NUMBERS[cell.getAdjacentMines()]);
+                            Math.min(56, symbolSize * 0.77f), NUMBERS[cell.getAdjacentMines()]);
                 }
             }
         }
-        float fx = boardLeft + col * cellSize;
-        float fy = boardTop + row * cellSize;
-        box(canvas, fx - 3, fy - 3, fx + cellSize + 1, fy + cellSize + 1, 8, Color.TRANSPARENT,
+        float fx = boardLeft + col * cellWidth;
+        float fy = boardTop + row * cellHeight;
+        box(canvas, fx - 3, fy - 3, fx + cellWidth + 1, fy + cellHeight + 1, 8, Color.TRANSPARENT,
                 0x5538e1c8, 8);
-        box(canvas, fx - 1, fy - 1, fx + cellSize - 1, fy + cellSize - 1, 6, Color.TRANSPARENT, ACCENT, 3);
+        box(canvas, fx - 1, fy - 1, fx + cellWidth - 1, fy + cellHeight - 1, 6, Color.TRANSPARENT, ACCENT, 3);
         text(canvas, getContext().getString(R.string.cursor_position, row + 1, col + 1),
                 gameRight - 6, DESIGN_HEIGHT - edge - 9, 22, DIM, false, false, Paint.Align.RIGHT);
     }
@@ -445,9 +456,10 @@ public final class BoardView extends View {
             callback.onMenuTap();
         } else if (paused) {
             callback.onResumeTap();
-        } else if (x >= boardLeft && y >= boardTop && x < boardLeft + engine.getCols() * cellSize
-                && y < boardTop + engine.getRows() * cellSize) {
-            callback.onCellTap((int) ((y - boardTop) / cellSize), (int) ((x - boardLeft) / cellSize));
+        } else if (cellWidth > 0 && cellHeight > 0 && x >= boardLeft && y >= boardTop
+                && x < boardLeft + engine.getCols() * cellWidth
+                && y < boardTop + engine.getRows() * cellHeight) {
+            callback.onCellTap((int) ((y - boardTop) / cellHeight), (int) ((x - boardLeft) / cellWidth));
         }
         return true;
     }

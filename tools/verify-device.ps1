@@ -13,6 +13,13 @@ $script:SnapshotNumber = 0
 $script:Passed = 0
 $script:Connected = $false
 $script:VolumeCommand = $null
+$script:Difficulties = @(
+    [pscustomobject]@{ Name = '初级'; Rows = 9; Cols = 9; MinMines = 10; MaxMines = 15 },
+    [pscustomobject]@{ Name = '中级'; Rows = 10; Cols = 12; MinMines = 18; MaxMines = 24 },
+    [pscustomobject]@{ Name = '高级'; Rows = 13; Cols = 16; MinMines = 34; MaxMines = 44 },
+    [pscustomobject]@{ Name = '困难'; Rows = 16; Cols = 20; MinMines = 58; MaxMines = 72 },
+    [pscustomobject]@{ Name = '挑战'; Rows = 19; Cols = 24; MinMines = 90; MaxMines = 108 }
+)
 $script:OriginalVolume = $null
 $script:Report = Join-Path $script:WorkRoot ('device-report-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
 New-Item -ItemType Directory -Force $script:WorkRoot | Out-Null
@@ -101,9 +108,13 @@ function Read-Snapshot {
     $script:SnapshotNumber++
     $localFile = Join-Path $script:WorkRoot ('ui-' + $script:SnapshotNumber.ToString('000') + '.xml')
     $remoteFile = '/sdcard/tvminesweeper-uiautomator.xml'
-    $dumpResult = Invoke-Adb -Arguments @('shell', 'uiautomator', 'dump', '--compressed', $remoteFile)
-    if ($dumpResult -match 'ERROR|could not get idle state') {
-        throw "无法读取无障碍界面：$dumpResult"
+    # Window transitions can briefly expose no accessibility root. Retry only the read,
+    # never the input event, so a transient dump failure cannot duplicate a user action.
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $dumpResult = Invoke-Adb -Arguments @('shell', 'uiautomator', 'dump', '--compressed', $remoteFile)
+        if ($dumpResult -notmatch 'ERROR|could not get idle state') { break }
+        if ($attempt -eq 2) { throw "无法读取无障碍界面：$dumpResult" }
+        Start-Sleep -Milliseconds 300
     }
     Invoke-Adb -Arguments @('pull', $remoteFile, $localFile) | Out-Null
     [xml]$document = [IO.File]::ReadAllText($localFile, [Text.Encoding]::UTF8)
@@ -140,10 +151,26 @@ function Read-Board($Snapshot = $null) {
 
 function Assert-Menu($Snapshot, [string]$Label = 'MENU 打开难度菜单') {
     $found = $false
+    $difficultyNames = @()
+    $hasSound = $false
+    $hasHelp = $false
+    $hasContinue = $false
     foreach ($node in $Snapshot.Document.SelectNodes('//node')) {
-        if ($node.GetAttribute('text') -eq '选择你的挑战') { $found = $true; break }
+        $labelText = $node.GetAttribute('text')
+        if ($labelText -eq '选择你的挑战') { $found = $true }
+        foreach ($difficulty in $script:Difficulties) {
+            if ($labelText -match ('^' + [regex]::Escape($difficulty.Name) + '(\s|$)')) {
+                $difficultyNames += $difficulty.Name
+            }
+        }
+        if ($labelText -match '^音效：') { $hasSound = $true }
+        if ($labelText -eq '轻松上手') { $hasHelp = $true }
+        if ($labelText -eq '继续游戏') { $hasContinue = $true }
     }
     Assert-That $found $Label
+    $expectedNames = @($script:Difficulties | ForEach-Object { $_.Name })
+    Assert-That (($difficultyNames -join '|') -eq ($expectedNames -join '|')) '难度菜单按顺序显示全部五档'
+    Assert-That ($hasSound -and $hasHelp -and $hasContinue) '五档难度之外保留音效、帮助和继续游戏，共八项'
 }
 
 function Assert-PauseMenu($Snapshot) {
@@ -159,21 +186,21 @@ function Assert-PauseMenu($Snapshot) {
     Assert-That (($actualOptions -join '|') -eq ($expectedOptions -join '|')) '暂停菜单依次提供继续、选择难度、保存并退出'
 }
 function Start-NewGame([int]$Difficulty) {
+    if ($Difficulty -lt 0 -or $Difficulty -ge $script:Difficulties.Count) { throw '无效的测试难度索引。' }
+    $difficultySpec = $script:Difficulties[$Difficulty]
     # Use the BACK route so normal setup does not depend on a remote MENU event.
     Send-Keys @(4)
     Assert-PauseMenu (Read-Snapshot)
     Send-Keys @(20, 23)
     Assert-Menu (Read-Snapshot) '返回菜单的“选择难度”打开难度菜单'
-    # Eight UP events place selection at the first row regardless of the previous option.
-    Send-Keys @(19, 19, 19, 19, 19, 19, 19, 19)
+    # Five difficulties plus sound, help, and continue: eight UP events reach the first row.
+    Send-Keys @(1..($script:Difficulties.Count + 3) | ForEach-Object { 19 })
     if ($Difficulty -gt 0) { Send-Keys @(1..$Difficulty | ForEach-Object { 20 }) }
     Send-Keys @(23)
     Start-Sleep -Milliseconds 400
     $board = Read-Board
     Assert-That ($board.State -eq 'READY' -and $board.Opened -eq 0 -and $board.Flags -eq 0 -and -not $board.Paused) '新局状态正确' $board.Description
-    $ranges = @(@(10, 15), @(40, 50), @(90, 110))
-    $range = $ranges[$Difficulty]
-    Assert-That ($board.Mines -ge $range[0] -and $board.Mines -le $range[1]) '本局随机雷数位于所选难度范围' "mines=$($board.Mines), range=$($range[0])..$($range[1])"
+    Assert-That ($board.Mines -ge $difficultySpec.MinMines -and $board.Mines -le $difficultySpec.MaxMines) ($difficultySpec.Name + '新局雷数位于本档范围') "mines=$($board.Mines), range=$($difficultySpec.MinMines)..$($difficultySpec.MaxMines)"
     return $board
 }
 
@@ -335,21 +362,31 @@ try {
         Assert-Cursor $shortcutClosed $beforeMenu.Row $beforeMenu.Col ($shortcut[1] + ' 关闭菜单并保留光标')
         Assert-That ($shortcutClosed.Mines -eq $beforeMenu.Mines -and $shortcutClosed.Opened -eq $beforeMenu.Opened -and $shortcutClosed.Flags -eq $beforeMenu.Flags) '菜单快捷键不重抽雷数或修改对局'
     }
-    $null = Start-NewGame 1
-    Send-Keys @((1..35 | ForEach-Object { 22 }) + (1..20 | ForEach-Object { 20 }))
-    Assert-Cursor (Read-Board) 16 16 '中级为 16×16，右下边界不越界'
-    $null = Start-NewGame 2
-    Send-Keys @((1..35 | ForEach-Object { 22 }) + (1..20 | ForEach-Object { 20 }))
-    Assert-Cursor (Read-Board) 16 30 '高级为 30×16，右下边界不越界'
+    for ($difficultyIndex = 0; $difficultyIndex -lt $script:Difficulties.Count; $difficultyIndex++) {
+        $difficultySpec = $script:Difficulties[$difficultyIndex]
+        $fresh = Start-NewGame $difficultyIndex
+        Send-Keys @((1..($difficultySpec.Cols + 3) | ForEach-Object { 22 }) + (1..($difficultySpec.Rows + 3) | ForEach-Object { 20 }))
+        $bottomRight = Read-Board
+        Assert-Cursor $bottomRight $difficultySpec.Rows $difficultySpec.Cols ($difficultySpec.Name + '棋盘尺寸正确，右下边界不越界')
+        Assert-That ($bottomRight.Opened -eq 0 -and $bottomRight.Flags -eq 0 -and $bottomRight.Mines -eq $fresh.Mines) '边界移动不改变棋盘或本局雷数'
+        Send-Keys @((1..($difficultySpec.Cols + 3) | ForEach-Object { 21 }) + (1..($difficultySpec.Rows + 3) | ForEach-Object { 19 }))
+        Assert-Cursor (Read-Board) 1 1 ($difficultySpec.Name + '上左边界不越界')
+    }
 
-    # A medium board makes a first-click instant win extremely unlikely during lifecycle checks.
-    $null = Start-NewGame 1
-    Send-Keys @((1..20 | ForEach-Object { 22 }) + (1..20 | ForEach-Object { 20 }) + @(23))
+    # Use the final tier and persist its last row/column to catch old 16-row restoration limits.
+    $lifecycleIndex = $script:Difficulties.Count - 1
+    $lifecycleSpec = $script:Difficulties[$lifecycleIndex]
+    $null = Start-NewGame $lifecycleIndex
+    Send-Keys @((1..($lifecycleSpec.Cols + 3) | ForEach-Object { 22 }) + (1..($lifecycleSpec.Rows + 3) | ForEach-Object { 20 }) + @(23))
     Start-Sleep -Milliseconds 450
-    Send-Keys @((1..20 | ForEach-Object { 21 }) + (1..20 | ForEach-Object { 19 }) + @(22, 20, 23, 23))
+    Send-Keys @((1..($lifecycleSpec.Cols + 3) | ForEach-Object { 21 }) + (1..($lifecycleSpec.Rows + 3) | ForEach-Object { 19 }) + @(22, 20, 23, 23))
     Start-Sleep -Milliseconds 450
     $lifecycle = Read-Board
-    Assert-That ($lifecycle.State -eq 'PLAYING' -and $lifecycle.Opened -gt 0 -and $lifecycle.Flags -eq 1) '生命周期测试对局已开始并保留一面旗帜'
+    Assert-That ($lifecycle.State -eq 'PLAYING' -and $lifecycle.Opened -gt 0 -and $lifecycle.Flags -eq 1) '挑战局已开始并保留一面旗帜'
+    Send-Keys @((1..($lifecycleSpec.Cols + 3) | ForEach-Object { 22 }) + (1..($lifecycleSpec.Rows + 3) | ForEach-Object { 20 }))
+    $lifecycleCorner = Read-Board
+    Assert-Cursor $lifecycleCorner $lifecycleSpec.Rows $lifecycleSpec.Cols '挑战局存档前光标位于第19行第24列'
+    Assert-That ($lifecycleCorner.Cell -eq 'flag' -and $lifecycleCorner.Flags -eq 1) '挑战局右下角旗帜保持，作为后台与重启恢复校验点'
     $backgroundWatch = [Diagnostics.Stopwatch]::StartNew()
     $beforeBackground = Read-Board
     Send-Keys @(3)
@@ -374,6 +411,8 @@ try {
     $restored = Read-Board
     Assert-That ($restored.State -eq 'PLAYING' -and $restored.Paused -and $restored.Opened -eq $beforeRestart.Opened -and $restored.Flags -eq $beforeRestart.Flags) '重新启动恢复已保存对局并暂停'
     Assert-Cursor $restored $beforeRestart.Row $beforeRestart.Col '重新启动恢复光标'
+    Assert-Cursor $restored $lifecycleSpec.Rows $lifecycleSpec.Cols '挑战19行棋盘恢复后仍能保持最后一行与最后一列'
+    Assert-That ($restored.Cell -eq 'flag') '重新启动恢复挑战局右下角旗帜'
     Assert-That ($restored.Elapsed -ge $beforeRestart.Elapsed) '重新启动恢复计时'
     Assert-That ($restored.Mines -eq $beforeRestart.Mines) '进行中存档恢复保持本局随机雷数'
     Write-Report '功能断言完成，准备恢复初级空白新局。'

@@ -417,29 +417,31 @@ public final class GameActivity extends Activity implements BoardView.Callback, 
 
     private void showMenu() {
         sounds.play(SoundEffects.MENU);
-        String[] options = new String[6];
-        for (int index = 0; index < 3; index++) {
-            GameEngine.Difficulty difficulty = GameEngine.Difficulty.values()[index];
+        final GameEngine.Difficulty[] levels = GameEngine.Difficulty.values();
+        final int difficultyCount = levels.length;
+        String[] options = new String[difficultyCount + 3];
+        for (int index = 0; index < difficultyCount; index++) {
+            GameEngine.Difficulty difficulty = levels[index];
             options[index] = getString(BoardView.difficultyLabel(index)) + "    "
                     + getString(R.string.difficulty_meta_range, difficulty.cols, difficulty.rows,
                             difficulty.minMines, difficulty.maxMines);
         }
-        options[3] = getString(soundEnabled ? R.string.sound_on : R.string.sound_off);
-        options[4] = getString(R.string.help_title);
-        options[5] = getString(R.string.continue_game);
+        options[difficultyCount] = getString(soundEnabled ? R.string.sound_on : R.string.sound_off);
+        options[difficultyCount + 1] = getString(R.string.help_title);
+        options[difficultyCount + 2] = getString(R.string.continue_game);
         showModal(getString(R.string.menu_title), getString(R.string.menu_sub), options,
                 getString(R.string.menu_hint), engine.getDifficulty().ordinal(), new Selection() {
                     @Override public void select(int position) {
-                        if (position < 3) {
-                            newGame(GameEngine.Difficulty.values()[position]);
-                        } else if (position == 3) {
+                        if (position < difficultyCount) {
+                            newGame(levels[position]);
+                        } else if (position == difficultyCount) {
                             soundEnabled = !soundEnabled;
                             sounds.setEnabled(soundEnabled);
                             sounds.play(SoundEffects.MENU);
-                            modal.setOption(3, getString(soundEnabled ? R.string.sound_on : R.string.sound_off));
+                            modal.setOption(difficultyCount, getString(soundEnabled ? R.string.sound_on : R.string.sound_off));
                             persistPreferences();
                             render();
-                        } else if (position == 4) {
+                        } else if (position == difficultyCount + 1) {
                             showHelp();
                         } else {
                             closeModal(true);

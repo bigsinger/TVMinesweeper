@@ -22,11 +22,18 @@ import java.util.UUID;
 public final class RankRepository {
     private static final String TAG = "TVMinesweeper";
     private static final String PREFERENCES = "minesweeper_ranks";
-    private static final String KEY_ENTRIES = "entries_v1";
+    private static final String KEY_LEGACY_ENTRIES = "entries_v1";
+    private static final String KEY_ENTRIES = "entries_v2";
     private static final int MAX_ENTRIES = 8;
     private static final int MAX_STORED_LENGTH = 32768;
     private static final Difficulty[] DIFFICULTIES = Difficulty.values();
-    private static final int[] DIFFICULTY_WEIGHTS = {1, 3, 8};
+    private static final int[] DIFFICULTY_WEIGHTS = {1, 2, 3, 5, 8};
+    private static final int LEGACY_INTERMEDIATE_CELLS = 16 * 16;
+    private static final int LEGACY_INTERMEDIATE_MIN_MINES = 40;
+    private static final int LEGACY_INTERMEDIATE_MAX_MINES = 50;
+    private static final int LEGACY_EXPERT_CELLS = 16 * 30;
+    private static final int LEGACY_EXPERT_MIN_MINES = 90;
+    private static final int LEGACY_EXPERT_MAX_MINES = 110;
     private static final int SCORE_BASE = 10000;
     private static final Comparator<Entry> RANK_ORDER = new Comparator<Entry>() {
         @Override
@@ -52,7 +59,7 @@ public final class RankRepository {
         public final String id;
         /** 按难度及用时计算的积分。 */
         public final int score;
-        /** 初级、中级、高级分别为 0、1、2。 */
+        /** 初级、中级、高级、困难、挑战分别为 0 至 4；旧记录已迁移到对应档位。 */
         public final int difficulty;
         /** 实际游戏用时，不包含暂停时段。 */
         public final long seconds;
@@ -70,7 +77,11 @@ public final class RankRepository {
 
     /** 使用应用私有 SharedPreferences 保存成绩，不申请任何权限。 */
     public RankRepository(Context context) {
-        preferences = context.getApplicationContext().getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
+        this(context.getApplicationContext().getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE));
+    }
+
+    RankRepository(SharedPreferences preferences) {
+        this.preferences = preferences;
     }
 
     /** 返回按分数排序的前八条成绩快照；损坏的条目不会显示在排行榜上。 */
@@ -93,6 +104,10 @@ public final class RankRepository {
         entries.add(new Entry(id, calculateScore(difficulty, seconds, safeCells), difficulty,
                 seconds, System.currentTimeMillis()));
         sortAndTrim(entries);
+        return writeEntries(entries) ? id : null;
+    }
+
+    private boolean writeEntries(List<Entry> entries) {
         try {
             JSONArray array = new JSONArray();
             for (Entry entry : entries) {
@@ -104,14 +119,15 @@ public final class RankRepository {
                 item.put("date", entry.date);
                 array.put(item);
             }
-            preferences.edit().putString(KEY_ENTRIES, array.toString()).apply();
-            return id;
+            // 同一份原子编辑写入新格式并移除旧键，避免下次启动重复转换难度。
+            preferences.edit().putString(KEY_ENTRIES, array.toString()).remove(KEY_LEGACY_ENTRIES).apply();
+            return true;
         } catch (JSONException exception) {
             Log.e(TAG, "Unable to encode win result", exception);
         } catch (RuntimeException exception) {
             Log.e(TAG, "Unable to save win result", exception);
         }
-        return null;
+        return false;
     }
 
     /** 沿用原型：四舍五入（难度权重 × 10000 ÷ 秒数），不足一秒按一秒计算。 */
@@ -125,7 +141,8 @@ public final class RankRepository {
     private List<Entry> readEntries() {
         List<Entry> entries = new ArrayList<Entry>();
         try {
-            String encoded = preferences.getString(KEY_ENTRIES, "[]");
+            boolean legacy = !preferences.contains(KEY_ENTRIES);
+            String encoded = preferences.getString(legacy ? KEY_LEGACY_ENTRIES : KEY_ENTRIES, "[]");
             if (encoded == null || encoded.length() > MAX_STORED_LENGTH) {
                 Log.w(TAG, "Ignoring invalid leaderboard size");
                 return entries;
@@ -137,6 +154,9 @@ public final class RankRepository {
                     JSONObject item = array.getJSONObject(index);
                     String id = item.getString("id");
                     int difficulty = item.getInt("difficulty");
+                    if (legacy) {
+                        difficulty = SettingsRepository.migrateLegacyDifficulty(difficulty);
+                    }
                     long seconds = item.getLong("seconds");
                     long date = item.getLong("date");
                     int score = item.getInt("score");
@@ -153,6 +173,11 @@ public final class RankRepository {
                     Log.w(TAG, "Ignoring damaged leaderboard entry", exception);
                 }
             }
+            sortAndTrim(entries);
+            if (legacy) {
+                // 保留已存积分、ID、用时和日期；旧档位映射后的权重与旧版完全相同。
+                writeEntries(entries);
+            }
         } catch (JSONException exception) {
             Log.w(TAG, "Unable to decode leaderboard", exception);
         } catch (RuntimeException exception) {
@@ -168,7 +193,19 @@ public final class RankRepository {
         }
         Difficulty level = DIFFICULTIES[difficulty];
         int totalCells = level.rows * level.cols;
-        return safeCells >= totalCells - level.maxMines && safeCells <= totalCells - level.minMines;
+        if (isSafeCellCount(safeCells, totalCells, level.minMines, level.maxMines)) {
+            return true;
+        }
+        if (level == Difficulty.ADVANCED) {
+            return isSafeCellCount(safeCells, LEGACY_INTERMEDIATE_CELLS,
+                    LEGACY_INTERMEDIATE_MIN_MINES, LEGACY_INTERMEDIATE_MAX_MINES);
+        }
+        return level == Difficulty.CHALLENGE && isSafeCellCount(safeCells, LEGACY_EXPERT_CELLS,
+                LEGACY_EXPERT_MIN_MINES, LEGACY_EXPERT_MAX_MINES);
+    }
+
+    private static boolean isSafeCellCount(int safeCells, int totalCells, int minMines, int maxMines) {
+        return safeCells >= totalCells - maxMines && safeCells <= totalCells - minMines;
     }
 
     private static int scoreForTime(int difficulty, long seconds) {

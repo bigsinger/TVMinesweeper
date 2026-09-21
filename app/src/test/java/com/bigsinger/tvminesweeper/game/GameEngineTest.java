@@ -55,8 +55,8 @@ public class GameEngineTest {
 
     @Test
     public void injectedRandomReproducesBoard() {
-        GameEngine first = new GameEngine(GameEngine.Difficulty.EXPERT, new Random(1234));
-        GameEngine second = new GameEngine(GameEngine.Difficulty.EXPERT, new Random(1234));
+        GameEngine first = new GameEngine(GameEngine.Difficulty.CHALLENGE, new Random(1234));
+        GameEngine second = new GameEngine(GameEngine.Difficulty.CHALLENGE, new Random(1234));
         first.openCell(8, 15);
         second.openCell(8, 15);
         assertEquals(first.serialize(), second.serialize());
@@ -137,14 +137,14 @@ public class GameEngineTest {
 
     @Test
     public void largeEmptyRegionExpandsWithoutRecursion() {
-        GameEngine game = new GameEngine(GameEngine.Difficulty.EXPERT, new Random() {
+        GameEngine game = new GameEngine(GameEngine.Difficulty.CHALLENGE, new Random() {
             @Override
             public int nextInt(int bound) {
                 return 0;
             }
         });
-        assertTrue(game.openCell(15, 29) > 300);
-        assertEquals(GameEngine.Difficulty.EXPERT.minMines, countMines(game));
+        assertTrue(game.openCell(18, 23) > 300);
+        assertEquals(GameEngine.Difficulty.CHALLENGE.minMines, countMines(game));
     }
 
     @Test
@@ -291,7 +291,7 @@ public class GameEngineTest {
 
     @Test
     public void saveRestoresReadyPlayingWonAndLost() {
-        GameEngine ready = new GameEngine(GameEngine.Difficulty.EXPERT);
+        GameEngine ready = new GameEngine(GameEngine.Difficulty.CHALLENGE);
         ready.toggleFlag(0, 0);
         assertRoundTrip(ready);
         GameEngine playing = playingGame();
@@ -340,9 +340,8 @@ public class GameEngineTest {
 
     @Test
     public void legacyReadyAndPlayingSavesMigrateWithoutChangingMineCountOrFlags() {
-        int[] legacyCounts = {10, 40, 99};
-        for (GameEngine.Difficulty difficulty : GameEngine.Difficulty.values()) {
-            int legacyCount = legacyCounts[difficulty.ordinal()];
+        for (GameEngine.Difficulty difficulty : new GameEngine.Difficulty[]{GameEngine.Difficulty.BEGINNER}) {
+            int legacyCount = 10;
             GameEngine ready = new GameEngine(difficulty,
                     randomWithFirstResult(legacyCount - difficulty.minMines));
             ready.toggleFlag(0, 0);
@@ -391,8 +390,9 @@ public class GameEngineTest {
         assertNull(GameEngine.restore(""));
         assertNull(GameEngine.restore(valid + "|unexpected"));
         assertNull(GameEngine.restore(valid.substring(0, valid.length() - 1)));
-        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM3")));
+        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM4")));
         assertNull(GameEngine.restore(replacePart(valid, 0, "TVM1")));
+        assertNull(GameEngine.restore(replacePart(valid, 0, "TVM2")));
         assertNull(GameEngine.restore(replacePart(valid, 1, "CUSTOM")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "INVALID")));
         assertNull(GameEngine.restore(replacePart(valid, 2, "READY")));
@@ -405,11 +405,11 @@ public class GameEngineTest {
         assertNull(GameEngine.restore(replacePart(valid, 4, "-1")));
         assertNull(GameEngine.restore(replacePart(valid, 5, "480")));
         assertNull(GameEngine.restore(replacePart(valid, 5, "-1")));
-        String payload = valid.split("\\|", -1)[7];
-        assertNull(GameEngine.restore(replacePart(valid, 7, "z" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 7, "6" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 7, "8" + payload.substring(1))));
-        assertNull(GameEngine.restore(replacePart(valid, 7, payload.replace('1', '0'))));
+        String payload = valid.split("\\|", -1)[8];
+        assertNull(GameEngine.restore(replacePart(valid, 8, "z" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 8, "6" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 8, "8" + payload.substring(1))));
+        assertNull(GameEngine.restore(replacePart(valid, 8, payload.replace('1', '0'))));
         StringBuilder oversized = new StringBuilder();
         for (int index = 0; index < 601; index++) {
             oversized.append('x');
@@ -523,6 +523,8 @@ public class GameEngineTest {
         assertNotNull(restored);
         assertEquals(game.serialize(), restored.serialize());
         assertEquals(game.getDifficulty(), restored.getDifficulty());
+        assertEquals(game.getRows(), restored.getRows());
+        assertEquals(game.getCols(), restored.getCols());
         assertEquals(game.getMineCount(), restored.getMineCount());
         for (int row = 0; row < game.getRows(); row++) {
             for (int col = 0; col < game.getCols(); col++) {
@@ -551,7 +553,7 @@ public class GameEngineTest {
     private static String toLegacySave(GameEngine game) {
         String[] parts = game.serialize().split("\\|", -1);
         return "TVM1|" + parts[1] + "|" + parts[2] + "|" + parts[3] + "|"
-                + parts[4] + "|" + parts[5] + "|" + parts[7];
+                + parts[4] + "|" + parts[5] + "|" + parts[8];
     }
 
     private static String replacePart(String saved, int index, String replacement) {

@@ -11,14 +11,18 @@ import org.json.JSONObject;
 public final class SettingsRepository {
     private static final String TAG = "TVMinesweeper";
     private static final String PREFERENCES = "minesweeper_settings";
-    private static final String KEY_DIFFICULTY = "difficulty";
+    private static final String KEY_LEGACY_DIFFICULTY = "difficulty";
+    private static final String KEY_DIFFICULTY = "difficulty_v2";
     private static final String KEY_SOUND = "sound_enabled";
     private static final String KEY_GAME = "saved_game_v1";
     private static final int SAVE_VERSION = 1;
     private static final int DEFAULT_DIFFICULTY = 0;
-    private static final int MAX_DIFFICULTY = 2;
+    private static final String[] DIFFICULTY_IDS = {"beginner", "intermediate", "advanced", "hard", "challenge"};
+    private static final int[] LEGACY_DIFFICULTIES = {0, 2, 4};
     private static final int MAX_STATE_LENGTH = 65536;
-    private static final int MAX_ROWS = 16;
+    private static final int MAX_ROWS = 19;
+    private static final int MAX_CURRENT_COLUMNS = 24;
+    private static final int MAX_LEGACY_ROWS = 16;
     private static final int MAX_COLUMNS = 30;
 
     private final SharedPreferences preferences;
@@ -44,32 +48,50 @@ public final class SettingsRepository {
 
     /** 使用应用私有 SharedPreferences 保存设置及进度。 */
     public SettingsRepository(Context context) {
-        preferences = context.getApplicationContext().getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
+        this(context.getApplicationContext().getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE));
     }
 
-    /** 返回上次选择的难度；缺失或损坏时使用初级。 */
-    public int getDifficulty() {
+    SettingsRepository(SharedPreferences preferences) {
+        this.preferences = preferences;
+    }
+
+    /** 返回五档难度下标；旧三档设置仅迁移一次，缺失或损坏时使用初级。 */
+    public synchronized int getDifficulty() {
         try {
-            int difficulty = preferences.getInt(KEY_DIFFICULTY, DEFAULT_DIFFICULTY);
-            if (difficulty >= DEFAULT_DIFFICULTY && difficulty <= MAX_DIFFICULTY) {
-                return difficulty;
+            if (preferences.contains(KEY_DIFFICULTY)) {
+                String id = preferences.getString(KEY_DIFFICULTY, "");
+                for (int index = 0; index < DIFFICULTY_IDS.length; index++) {
+                    if (DIFFICULTY_IDS[index].equals(id)) {
+                        return index;
+                    }
+                }
+                Log.w(TAG, "Ignoring invalid difficulty identifier");
+                return DEFAULT_DIFFICULTY;
             }
-            Log.w(TAG, "Ignoring invalid difficulty setting");
+            int difficulty = migrateLegacyDifficulty(
+                    preferences.getInt(KEY_LEGACY_DIFFICULTY, DEFAULT_DIFFICULTY));
+            if (difficulty < 0) {
+                Log.w(TAG, "Ignoring invalid legacy difficulty setting");
+                difficulty = DEFAULT_DIFFICULTY;
+            }
+            setDifficulty(difficulty);
+            return difficulty;
         } catch (RuntimeException exception) {
             Log.w(TAG, "Unable to read difficulty setting", exception);
         }
         return DEFAULT_DIFFICULTY;
     }
 
-    /** 保存难度；超出 0 至 2 的值会回退为初级。 */
-    public void setDifficulty(int difficulty) {
+    /** 用固定标识保存难度；超出 0 至 4 的值会回退为初级。 */
+    public synchronized void setDifficulty(int difficulty) {
         int value = difficulty;
-        if (value < DEFAULT_DIFFICULTY || value > MAX_DIFFICULTY) {
+        if (value < DEFAULT_DIFFICULTY || value >= DIFFICULTY_IDS.length) {
             Log.w(TAG, "Resetting invalid difficulty setting");
             value = DEFAULT_DIFFICULTY;
         }
         try {
-            preferences.edit().putInt(KEY_DIFFICULTY, value).apply();
+            preferences.edit().putString(KEY_DIFFICULTY, DIFFICULTY_IDS[value])
+                    .remove(KEY_LEGACY_DIFFICULTY).apply();
         } catch (RuntimeException exception) {
             Log.e(TAG, "Unable to save difficulty setting", exception);
         }
@@ -97,7 +119,7 @@ public final class SettingsRepository {
     /** 将棋盘、计时与光标作为同一快照保存，避免恢复时出现不同步。 */
     public synchronized void saveGame(String engineState, long elapsedMillis, int row, int col) {
         if (engineState == null || engineState.length() == 0 || engineState.length() > MAX_STATE_LENGTH
-                || elapsedMillis < 0L || row < 0 || row >= MAX_ROWS || col < 0 || col >= MAX_COLUMNS) {
+                || elapsedMillis < 0L || !isValidCursor(row, col)) {
             Log.w(TAG, "Ignoring invalid game snapshot");
             return;
         }
@@ -135,7 +157,7 @@ public final class SettingsRepository {
             int col = saved.getInt("col");
             if (saved.getInt("version") != SAVE_VERSION || engineState.length() == 0
                     || engineState.length() > MAX_STATE_LENGTH || elapsedMillis < 0L
-                    || row < 0 || row >= MAX_ROWS || col < 0 || col >= MAX_COLUMNS) {
+                    || !isValidCursor(row, col)) {
                 Log.w(TAG, "Ignoring invalid game snapshot");
                 clearGame();
                 return null;
@@ -157,5 +179,16 @@ public final class SettingsRepository {
         } catch (RuntimeException exception) {
             Log.e(TAG, "Unable to clear game snapshot", exception);
         }
+    }
+
+    static int migrateLegacyDifficulty(int legacyDifficulty) {
+        return legacyDifficulty >= 0 && legacyDifficulty < LEGACY_DIFFICULTIES.length
+                ? LEGACY_DIFFICULTIES[legacyDifficulty] : -1;
+    }
+
+    private static boolean isValidCursor(int row, int col) {
+        // 外层快照接受新棋盘或保留的旧棋盘；精确尺寸仍由恢复后的引擎约束。
+        return row >= 0 && col >= 0 && ((row < MAX_ROWS && col < MAX_CURRENT_COLUMNS)
+                || (row < MAX_LEGACY_ROWS && col < MAX_COLUMNS));
     }
 }

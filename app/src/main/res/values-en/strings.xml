@@ -12,7 +12,9 @@
     <string name="time_label">TIME</string>
     <string name="beginner">Easy</string>
     <string name="intermediate">Normal</string>
-    <string name="expert">Expert</string>
+    <string name="advanced">Advanced</string>
+    <string name="hard">Hard</string>
+    <string name="challenge">Challenge</string>
     <string name="menu_key">MENU</string>
     <string name="menu_title">Choose your challenge</string>
     <string name="menu_sub">Random mines each game. Select a difficulty to start again.</string>

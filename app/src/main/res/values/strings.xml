@@ -12,7 +12,9 @@
     <string name="time_label">本局用时</string>
     <string name="beginner">初级</string>
     <string name="intermediate">中级</string>
-    <string name="expert">高级</string>
+    <string name="advanced">高级</string>
+    <string name="hard">困难</string>
+    <string name="challenge">挑战</string>
     <string name="menu_key">MENU</string>
     <string name="menu_title">选择你的挑战</string>
     <string name="menu_sub">每局雷数随机，选择难度将开始新的一局</string>

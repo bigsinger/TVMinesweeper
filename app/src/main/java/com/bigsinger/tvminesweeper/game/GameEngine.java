@@ -5,9 +5,8 @@ import java.util.Random;
 
 /** 不依赖 Android 的扫雷规则：首次安全、空白展开、插旗、数字快开和存档。 */
 public final class GameEngine {
-    private static final String SAVE_VERSION = "TVM2";
-    private static final String LEGACY_SAVE_VERSION = "TVM1";
-    private static final int SAVE_PART_COUNT = 8;
+    private static final String SAVE_VERSION = "TVM3";
+    private static final int SAVE_PART_COUNT = 9;
     private static final int MAX_SAVE_LENGTH = 600;
     private static final int MINE_BIT = 1;
     private static final int OPENED_BIT = 2;
@@ -19,30 +18,52 @@ public final class GameEngine {
         READY, PLAYING, WON, LOST
     }
 
-    /** 经典难度；行列顺序适配横屏电视。 */
+    /** 新局的五档规格；旧局通过独立布局标记保留实际行列数。 */
     public enum Difficulty {
-        BEGINNER(9, 9, 10, 15, 10),
-        INTERMEDIATE(16, 16, 40, 50, 40),
-        EXPERT(16, 30, 90, 110, 99);
+        BEGINNER(9, 9, 10, 15),
+        INTERMEDIATE(10, 12, 18, 24),
+        ADVANCED(13, 16, 34, 44),
+        HARD(16, 20, 58, 72),
+        CHALLENGE(19, 24, 90, 108);
 
         public final int rows;
         public final int cols;
         public final int minMines;
         public final int maxMines;
-        /** 仅用于读取 TVM1 固定雷数存档；界面和规则应使用范围或本局实际雷数。 */
-        @Deprecated
-        public final int mines;
 
-        Difficulty(int rows, int cols, int minMines, int maxMines, int legacyMines) {
+        Difficulty(int rows, int cols, int minMines, int maxMines) {
             this.rows = rows;
             this.cols = cols;
             this.minMines = minMines;
             this.maxMines = maxMines;
-            this.mines = legacyMines;
+        }
+    }
+
+    /** 仅允许已发布过的布局，避免存档携带任意尺寸或与难度矛盾的雷数范围。 */
+    private enum Layout {
+        CURRENT(null, 0, 0, 0, 0),
+        LEGACY_INTERMEDIATE(Difficulty.ADVANCED, 16, 16, 40, 50),
+        LEGACY_EXPERT(Difficulty.CHALLENGE, 16, 30, 90, 110);
+
+        final Difficulty difficulty;
+        final int rows;
+        final int cols;
+        final int minMines;
+        final int maxMines;
+
+        Layout(Difficulty difficulty, int rows, int cols, int minMines, int maxMines) {
+            this.difficulty = difficulty;
+            this.rows = rows;
+            this.cols = cols;
+            this.minMines = minMines;
+            this.maxMines = maxMines;
         }
     }
 
     private final Difficulty difficulty;
+    private final Layout layout;
+    private final int rows;
+    private final int cols;
     private final Random random;
     private final int mineCount;
     private final Cell[] cells;
@@ -58,20 +79,29 @@ public final class GameEngine {
 
     /** 注入随机源，便于重现雷区和验证规则。 */
     public GameEngine(Difficulty difficulty, Random random) {
-        this(difficulty, random, chooseMineCount(difficulty, random));
+        this(difficulty, random, chooseMineCount(difficulty, random), Layout.CURRENT);
     }
 
-    private GameEngine(Difficulty difficulty, Random random, int mineCount) {
+    private GameEngine(Difficulty difficulty, Random random, int mineCount, Layout layout) {
         if (difficulty == null || random == null) {
             throw new IllegalArgumentException("Difficulty and random must not be null");
         }
-        if (mineCount < difficulty.minMines || mineCount > difficulty.maxMines) {
+        boolean current = layout == Layout.CURRENT;
+        if (!current && layout.difficulty != difficulty) {
+            throw new IllegalArgumentException("Legacy layout does not match difficulty");
+        }
+        int minMines = current ? difficulty.minMines : layout.minMines;
+        int maxMines = current ? difficulty.maxMines : layout.maxMines;
+        if (mineCount < minMines || mineCount > maxMines) {
             throw new IllegalArgumentException("Mine count is outside the difficulty range");
         }
         this.difficulty = difficulty;
+        this.layout = layout;
+        this.rows = current ? difficulty.rows : layout.rows;
+        this.cols = current ? difficulty.cols : layout.cols;
         this.random = random;
         this.mineCount = mineCount;
-        cells = new Cell[difficulty.rows * difficulty.cols];
+        cells = new Cell[rows * cols];
         for (int index = 0; index < cells.length; index++) {
             cells[index] = new Cell();
         }
@@ -87,14 +117,14 @@ public final class GameEngine {
         return state;
     }
 
-    /** 返回棋盘行数。 */
+    /** 返回本局实际行数；迁移的旧局可与新局难度规格不同。 */
     public int getRows() {
-        return difficulty.rows;
+        return rows;
     }
 
-    /** 返回棋盘列数。 */
+    /** 返回本局实际列数；迁移的旧局可与新局难度规格不同。 */
     public int getCols() {
-        return difficulty.cols;
+        return cols;
     }
 
     /** 返回本局地雷总数。 */
@@ -200,7 +230,7 @@ public final class GameEngine {
         result.append(SAVE_VERSION).append('|').append(difficulty.name()).append('|')
                 .append(state.name()).append('|').append(flagCount).append('|')
                 .append(openedCount).append('|').append(firstOpenedIndex).append('|')
-                .append(mineCount).append('|');
+                .append(mineCount).append('|').append(layout.name()).append('|');
         for (Cell cell : cells) {
             int value = (cell.mine ? MINE_BIT : 0) | (cell.opened ? OPENED_BIT : 0)
                     | (cell.flagged ? FLAGGED_BIT : 0) | (cell.exploded ? EXPLODED_BIT : 0);
@@ -215,19 +245,41 @@ public final class GameEngine {
             return null;
         }
         String[] parts = saved.split("\\|", -1);
-        boolean legacy = parts.length == SAVE_PART_COUNT - 1 && LEGACY_SAVE_VERSION.equals(parts[0]);
-        if (!legacy && (parts.length != SAVE_PART_COUNT || !SAVE_VERSION.equals(parts[0]))) {
+        boolean legacyFixed = parts.length == 7 && "TVM1".equals(parts[0]);
+        boolean legacyRandom = parts.length == 8 && "TVM2".equals(parts[0]);
+        boolean current = parts.length == SAVE_PART_COUNT && SAVE_VERSION.equals(parts[0]);
+        if (!legacyFixed && !legacyRandom && !current) {
             return null;
         }
         try {
-            Difficulty difficulty = Difficulty.valueOf(parts[1]);
-            int savedMineCount = legacy ? difficulty.mines : Integer.parseInt(parts[6]);
-            GameEngine engine = new GameEngine(difficulty, new Random(), savedMineCount);
+            Difficulty difficulty;
+            Layout layout;
+            int fixedMineCount = 0;
+            if (current) {
+                difficulty = Difficulty.valueOf(parts[1]);
+                layout = Layout.valueOf(parts[7]);
+            } else if ("BEGINNER".equals(parts[1])) {
+                difficulty = Difficulty.BEGINNER;
+                layout = Layout.CURRENT;
+                fixedMineCount = 10;
+            } else if ("INTERMEDIATE".equals(parts[1])) {
+                difficulty = Difficulty.ADVANCED;
+                layout = Layout.LEGACY_INTERMEDIATE;
+                fixedMineCount = 40;
+            } else if ("EXPERT".equals(parts[1])) {
+                difficulty = Difficulty.CHALLENGE;
+                layout = Layout.LEGACY_EXPERT;
+                fixedMineCount = 99;
+            } else {
+                return null;
+            }
+            int savedMineCount = legacyFixed ? fixedMineCount : Integer.parseInt(parts[6]);
+            GameEngine engine = new GameEngine(difficulty, new Random(), savedMineCount, layout);
             engine.state = State.valueOf(parts[2]);
             engine.flagCount = Integer.parseInt(parts[3]);
             engine.openedCount = Integer.parseInt(parts[4]);
             engine.firstOpenedIndex = Integer.parseInt(parts[5]);
-            String payload = parts[legacy ? 6 : 7];
+            String payload = parts[current ? 8 : legacyFixed ? 6 : 7];
             if (payload.length() != engine.cells.length) {
                 return null;
             }
@@ -262,11 +314,11 @@ public final class GameEngine {
     }
 
     private boolean isInside(int row, int col) {
-        return row >= 0 && row < difficulty.rows && col >= 0 && col < difficulty.cols;
+        return row >= 0 && row < rows && col >= 0 && col < cols;
     }
 
     private int indexOf(int row, int col) {
-        return row * difficulty.cols + col;
+        return row * cols + col;
     }
 
     private boolean isFinished() {
@@ -276,8 +328,8 @@ public final class GameEngine {
     private void generateMines(int safeRow, int safeCol) {
         int[] candidates = new int[cells.length];
         int candidateCount = 0;
-        for (int row = 0; row < difficulty.rows; row++) {
-            for (int col = 0; col < difficulty.cols; col++) {
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
                 if (Math.abs(row - safeRow) > 1 || Math.abs(col - safeCol) > 1) {
                     candidates[candidateCount++] = indexOf(row, col);
                 }
@@ -295,8 +347,8 @@ public final class GameEngine {
     }
 
     private void calculateAdjacentMines() {
-        for (int row = 0; row < difficulty.rows; row++) {
-            for (int col = 0; col < difficulty.cols; col++) {
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
                 int count = 0;
                 for (int nearbyRow = row - 1; nearbyRow <= row + 1; nearbyRow++) {
                     for (int nearbyCol = col - 1; nearbyCol <= col + 1; nearbyCol++) {
@@ -331,8 +383,8 @@ public final class GameEngine {
             if (cells[current].adjacentMines != 0) {
                 continue;
             }
-            int row = current / difficulty.cols;
-            int col = current % difficulty.cols;
+            int row = current / cols;
+            int col = current % cols;
             for (int nearbyRow = row - 1; nearbyRow <= row + 1; nearbyRow++) {
                 for (int nearbyCol = col - 1; nearbyCol <= col + 1; nearbyCol++) {
                     Cell neighbor = getCell(nearbyRow, nearbyCol);
@@ -389,8 +441,8 @@ public final class GameEngine {
                 || !cells[firstOpenedIndex].opened || openedCount == 0) {
             return false;
         }
-        int firstRow = firstOpenedIndex / difficulty.cols;
-        int firstCol = firstOpenedIndex % difficulty.cols;
+        int firstRow = firstOpenedIndex / cols;
+        int firstCol = firstOpenedIndex % cols;
         for (int row = firstRow - 1; row <= firstRow + 1; row++) {
             for (int col = firstCol - 1; col <= firstCol + 1; col++) {
                 Cell cell = getCell(row, col);
